@@ -1,0 +1,241 @@
+{
+	"EXT": {
+		"kind": "context",
+		"@Common.Label": "Custom"
+	},
+	"EXT.CSA_S4_POLIZAS_SVW": {
+		"kind": "entity",
+		"@Common.Label": "EXT S4 Polizas Ocaso-Eterna",
+		"@Analytics.query": false,
+		"@Analytics.dataCategory": {
+			"#": "CUBE"
+		},
+		"elements": {
+			"EMPRESA": {
+				"@Common.Label": "EMPRESA",
+				"type": "cds.String",
+				"@Analytics.Dimension": true
+			},	
+			"INFORME_EA": {
+				"@Common.Label": "INFORME_EA",
+				"type": "cds.String",
+				"@Analytics.Dimension": true
+			},	
+			"CAMPO_REGIONAL": {
+				"@Common.Label": "CAMPO_REGIONAL",
+				"type": "cds.String",
+				"@Analytics.Dimension": true
+			},	
+			"CAMPO_SUCURSAL": {
+				"@Common.Label": "CAMPO_SUCURSAL",
+				"type": "cds.String",
+				"@Analytics.Dimension": true
+			},	
+			"CAMPO_OFICINA": {
+				"@Common.Label": "CAMPO_OFICINA",
+				"type": "cds.String",
+				"@Analytics.Dimension": true
+			},	
+			"CAMPO_AGENTE": {
+				"@Common.Label": "CAMPO_AGENTE",
+				"type": "cds.String",
+				"@Analytics.Dimension": true
+			},	
+			"CAMPO_TIPO_AGENTE": {
+				"@Common.Label": "CAMPO_TIPO_AGENTE",
+				"type": "cds.String",
+				"@Analytics.Dimension": true
+			},	
+			"CAMPO_PRODUCTO": {
+				"@Common.Label": "CAMPO_PRODUCTO",
+				"type": "cds.String",
+				"@Analytics.Dimension": true
+			},	
+			"NIVEL_PTO_VENTA": {
+				"@Common.Label": "NIVEL_PTO_VENTA",
+				"type": "cds.DecimalFloat",
+				"@Analytics.Dimension": true
+			},	
+			"COD_PTO_VENTA": {
+				"@Common.Label": "COD_PTO_VENTA",
+				"type": "cds.String",
+				"@Analytics.Dimension": true
+			},	
+			"PTO_VENTA": {
+				"@Common.Label": "PTO_VENTA",
+				"type": "cds.String",
+				"@Analytics.Dimension": true
+			},	
+			"NIVEL_OFICINA": {
+				"@Common.Label": "NIVEL_OFICINA",
+				"type": "cds.DecimalFloat",
+				"@Analytics.Dimension": true
+			},	
+			"COD_OFICINA": {
+				"@Common.Label": "COD_OFICINA",
+				"type": "cds.String",
+				"@Analytics.Dimension": true
+			},	
+			"OFICINA": {
+				"@Common.Label": "OFICINA",
+				"type": "cds.String",
+				"@Analytics.Dimension": true
+			},	
+			"NIVEL_SUCURSAL": {
+				"@Common.Label": "NIVEL_SUCURSAL",
+				"type": "cds.DecimalFloat",
+				"@Analytics.Dimension": true
+			},	
+			"COD_SUCURSAL": {
+				"@Common.Label": "COD_SUCURSAL",
+				"type": "cds.String",
+				"@Analytics.Dimension": true
+			},	
+			"SUCURSAL": {
+				"@Common.Label": "SUCURSAL",
+				"type": "cds.String",
+				"@Analytics.Dimension": true
+			},	
+			"NIVEL_REGIONAL": {
+				"@Common.Label": "NIVEL_REGIONAL",
+				"type": "cds.DecimalFloat",
+				"@Analytics.Dimension": true
+			},	
+			"COD_REGIONAL": {
+				"@Common.Label": "COD_REGIONAL",
+				"type": "cds.String",
+				"@Analytics.Dimension": true
+			},	
+			"REGIONAL": {
+				"@Common.Label": "REGIONAL",
+				"type": "cds.String",
+				"@Analytics.Dimension": true
+			},	
+			"NOMBRE": {
+				"@Common.Label": "NOMBRE",
+				"type": "cds.String",
+				"@Analytics.Dimension": true
+			},	
+			"CUADRO_RRGG": {
+				"@Common.Label": "CUADRO_RRGG",
+				"type": "cds.String",
+				"@Analytics.Dimension": true
+			},	
+			"CUADRO_RRTT": {
+				"@Common.Label": "CUADRO_RRTT",
+				"type": "cds.String",
+				"@Analytics.Dimension": true
+			},	
+			"PRODUCTID": {
+				"@Common.Label": "PRODUCTID",
+				"type": "cds.String",
+				"@Analytics.Dimension": true
+			},	
+			"POS_PRIN": {
+				"@Common.Label": "POS_PRIN",
+				"type": "cds.String",
+				"@Analytics.Dimension": true
+			},	
+			"PRODUCTO": {
+				"@Common.Label": "PRODUCTO",
+				"type": "cds.String",
+				"@Analytics.Dimension": true
+			},	
+			"POSITIONNAME": {
+				"@Common.Label": "POSITIONNAME",
+				"type": "cds.String",
+				"@Analytics.Dimension": true
+			},	
+			"POLIZA": {
+				"@Common.Label": "POLIZA",
+				"type": "cds.String",
+				"@Analytics.Dimension": true
+			},	
+			"FEC_CARGO": {
+				"@Common.Label": "FEC_CARGO",
+				"type": "cds.TimeStamp",
+				"@Analytics.Dimension": true
+			},	
+			"PRIMA_COMIS": {
+				"@Common.Label": "PRIMA_COMIS",
+				"type": "cds.DecimalFloat",
+				"@Analytics.Measure": true
+			},	
+			"PRIMA_NETA": {
+				"@Common.Label": "PRIMA_NETA",
+				"type": "cds.DecimalFloat",
+				"@Analytics.Measure": true
+			},	
+			"VALUE": {
+				"@Common.Label": "VALUE",
+				"type": "cds.DecimalFloat",
+				"@Analytics.Measure": true
+			},	
+			"POLIZ_CORR": {
+				"@Common.Label": "POLIZ_CORR",
+				"type": "cds.DecimalFloat",
+				"@Analytics.Measure": true
+			},	
+			"POLIZ_NP": {
+				"@Common.Label": "POLIZ_NP",
+				"type": "cds.DecimalFloat",
+				"@Analytics.Measure": true
+			},	
+			"EVENTO": {
+				"@Common.Label": "EVENTO",
+				"type": "cds.String",
+				"@Analytics.Dimension": true
+			},	
+			"NIF": {
+				"@Common.Label": "NIF",
+				"type": "cds.String",
+				"@Analytics.Dimension": true
+			},	
+			"NAME": {
+				"@Common.Label": "NAME",
+				"type": "cds.String",
+				"@Analytics.Dimension": true
+			},	
+			"PERIODO": {
+				"@Common.Label": "PERIODO",
+				"type": "cds.String",
+				"@Analytics.Dimension": true
+			},	
+			"FEC_VTO_REC": {
+				"@Common.Label": "FEC_VTO_REC",
+				"type": "cds.TimeStamp",
+				"@Analytics.Dimension": true
+			},	
+			"SALESTRANSACTIONSEQ": {
+				"@Common.Label": "SALESTRANSACTIONSEQ",
+				"type": "cds.String",
+				"@Analytics.Dimension": true
+			},	
+			"ID_TIPO_AGENTE": {
+				"@Common.Label": "ID_TIPO_AGENTE",
+				"type": "cds.DecimalFloat",
+				"@Analytics.Dimension": true
+			},	
+			"TIPO_AGENTE": {
+				"@Common.Label": "TIPO_AGENTE",
+				"type": "cds.String",
+				"@Analytics.Dimension": true
+			},	
+			"SUPERRAPEL": {
+				"@Common.Label": "SUPERRAPEL",
+				"type": "cds.Integer",
+				"@Analytics.Dimension": true
+			},	
+			"ASEGURADOS": {
+				"@Common.Label": "ASEGURADOS",
+				"type": "cds.DecimalFloat",
+				"@Analytics.Measure": true
+			},	
+			"BALANCESEQ": {
+				"@Common.Label": "BALANCESEQ",
+				"type": "cds.Integer64",
+				"@Analytics.Dimension": true
+			}	
+		}
+	}
+}

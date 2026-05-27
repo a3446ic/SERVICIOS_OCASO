@@ -1,0 +1,3 @@
+Ocaso crea versiones de position en mitad de periodo, por lo que hace falta mostrarlo
+1. modificar la vista para que se muestren las posibles versiones dentro del periodo
+2. en el informe hay que hacer promt/filtro por fecha exacta, no por periodo

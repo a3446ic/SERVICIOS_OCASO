@@ -1,0 +1,46 @@
+{
+	"EXT": {
+		"kind": "context",
+		"@Common.Label": "Custom"
+	},
+	"EXT.CSA_FECHAS_ACTUALIZACION_TABLAS_SVW": {
+		"kind": "entity",
+		"@Common.Label": "EXT Fechas Actualización Tablas",
+		"@Analytics.query": false,
+		"@Analytics.dataCategory": {
+			"#": "CUBE"
+		},
+		"elements": {
+			"PERIODO": {
+				"@Common.Label": "PERIODO",
+				"type": "cds.String",
+				"@Analytics.Dimension": true
+			},	
+			"DESCRIPCION": {
+				"@Common.Label": "DESCRIPCIÓN",
+				"type": "cds.String",
+				"@Analytics.Dimension": true
+			},	
+			"ULTIMA_ACTUALIZACION": {
+				"@Common.Label": "ÚLTIMA ACTUALIZACIÓN",
+				"type": "cds.TimeStamp",
+				"@Analytics.Dimension": true
+			},	
+			"TABLA": {
+				"@Common.Label": "NOMBRE TABLA",
+				"type": "cds.String",
+				"@Analytics.Dimension": true
+			},	
+			"ULTIMA_ACTUALIZACION_FORMATO": {
+				"@Common.Label": "ÚLTIMA ACTUALIZACIÓN FORMATO",
+				"type": "cds.String",
+				"@Analytics.Dimension": true
+			},	
+			"NUMERO": {
+				"@Common.Label": "NUMERO",
+				"type": "cds.Integer",
+				"@Analytics.Measure": true
+			}
+		}
+	}
+}

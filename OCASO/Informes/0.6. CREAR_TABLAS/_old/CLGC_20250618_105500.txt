@@ -1,0 +1,11 @@
+PEAG;Informes Diario;01/01/2014;01/01/2200;;;ESP;;1.11 Percepcion Agentes;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;1;;;;;;Percepciones Agentes
+PRAG;Informes Diario;01/01/2014;01/01/2200;;;ESP;;1.12 Produccion Agentes;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;1;;;;;;Produccion Agentes
+PEIN;Informes Diario;01/01/2014;01/01/2200;;;ESP;;1.13 Percepcion Inspectores;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;1;;;;;;Percepciones Inspectores
+PRIN;Informes Diario;01/01/2014;01/01/2200;;;ESP;;1.14 Producci n Inspectores;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;1;;;;;;Produccion Inspectores
+OMESCU;Informes Diario;01/01/2014;01/01/2200;;;ESP;;1.16 Agentes Activos (OMESCU);;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;1;;;;;;Agentes Activos
+RPA;Informes Diario;01/01/2014;01/01/2200;;;ESP;;1.26 Rappel Produccion Agentes;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;1;;;;;;Rappel Produccion Agentes
+S4;Informes Diario;01/01/2014;01/01/2200;;;ESP;;O S4 Detalle Polizas;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;1;;;;;;O S4 Detalle Polizas
+S4_E;Informes Diario;01/01/2014;01/01/2200;;;ESP;;E S4 Detalle Polizas;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;1;;;;;;E S4 Detalle Polizas
+S5;Informes Diario;01/01/2014;01/01/2200;;;ESP;;O S5 Detalle Polizas;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;1;;;;;;O S5 Detalle Polizas
+FAC_S4;Informes Diario;01/01/2014;01/01/2200;;;ESP;;O S4 Factura;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;1;;;;;;O S4 Factura
+FAC_S4_E;Informes Diario;01/01/2014;01/01/2200;;;ESP;;E S4 Factura;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;1;;;;;;E S4 Factura

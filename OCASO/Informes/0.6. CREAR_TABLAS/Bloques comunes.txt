@@ -1,0 +1,24 @@
+--BORRADO TABLA
+CALL LIB_GLOBAL:WRITE_LOG(v_permisos_log, proc_name, 'Inicio Borrado NOMBRE_TABLA', i_log_count, i_id_proceso, 'debug');
+DELETE FROM EXT.NOMBRE_TABLA WHERE PERIODSEQ = :i_PeriodSeq;
+v_num_rows := ::ROWCOUNT;
+CALL LIB_GLOBAL:WRITE_LOG(v_permisos_log, proc_name, 'Fin Borrado NOMBRE_TABLA. Filas: ' || v_num_rows, i_log_count, i_id_proceso, 'debug');
+
+--INSERT EN TABLA
+CALL LIB_GLOBAL:WRITE_LOG(v_permisos_log, proc_name, 'Inicio Carga NOMBRE_TABLA', i_log_count, i_id_proceso, 'debug');
+INSERT INTO EXT.NOMBRE_TABLA
+	WHERE PERIODSEQ = :i_PeriodSeq;
+v_num_rows := ::ROWCOUNT;
+CALL LIB_GLOBAL:WRITE_LOG(v_permisos_log, proc_name, 'Fin Carga NOMBRE_TABLA. Filas: ' || v_num_rows, i_log_count, i_id_proceso, 'debug');
+
+--ACTUALIZAR FECHAS WEBI
+CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, proc_name, 'Inicio actualización de fecha en OUT_FECHAS_WEBI_REP de NOMBRE_TABLA', i_log_count, i_id_proceso, 'debug');
+CALL EXT.LIB_CREAR_TABLAS:UPDATE_FECHAS_WEBI(i_PeriodSeq, 'NOMBRE_TABLA');
+CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, proc_name, 'Fin actualización de fecha en OUT_FECHAS_WEBI_REP de NOMBRE_TABLA', i_log_count, i_id_proceso, 'debug');
+
+-- Revisamos si se debe detener el proceso
+CALL EXT.LIB_CREAR_TABLAS:w_stop(v_stop);
+IF v_stop = 0 THEN
+	CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, proc_name, 'CONTROL PARA NO EJECUTAR EL PROCESO. REVISAR CLASIFICACION!!!!!!!' , i_log_count, i_id_proceso, 'warning');    	
+	RETURN;
+END IF;

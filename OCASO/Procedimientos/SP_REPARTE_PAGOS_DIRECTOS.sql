@@ -1,0 +1,15749 @@
+CREATE OR REPLACE PROCEDURE EXT.SP_REPARTE_PAGOS_DIRECTOS(IN i_tipo_reparto VARCHAR(10), IN i_PERIODSEQ BIGINT, IN i_proc_name_principal VARCHAR(50), IN v_idproceso INT, IN v_num_POST INT, INOUT v_log_count INTEGER)
+LANGUAGE SQLSCRIPT  
+SQL SECURITY INVOKER 
+DEFAULT SCHEMA EXT AS
+/*---------------------------------------------------------------------
+    | Author: Samuel Miralles Manresa
+    | Company: Inycom
+    | Initial Version Date: 08-Abril-2026
+    |----------------------------------------------------------------------
+    | Procedure Purpose: Reparto balances
+	|
+	| Version: 0.1	20260408		Initial Version.
+	|
+    -----------------------------------------------------------------------
+*/
+BEGIN
+	DECLARE v_proc_name VARCHAR(50) := i_proc_name_principal;
+	DECLARE v_proc_name_secundario VARCHAR(50) := ::CURRENT_OBJECT_SCHEMA ||'.'|| ::CURRENT_OBJECT_NAME;
+	DECLARE v_version VARCHAR(10) := '0.1';
+	DECLARE v_num_rows BIGINT := 0;
+	DECLARE v_permisos_log VARCHAR(50) := EXT.LIB_GLOBAL:GET_PERMISOS_LOG();
+	-- DECLARE v_log_count BIGINT := 0;
+	-- DECLARE v_idproceso BIGINT;
+	DECLARE v_idtenant VARCHAR(50) := EXT.LIB_GLOBAL:getTenantID();
+	DECLARE v_eot DATE = EXT.LIB_CONSTANTES:v_eot;
+	DECLARE v_periodSeqAnterior BIGINT;
+	DECLARE v_PeriodNameAnterior VARCHAR(255);
+	DECLARE v_PeriodStartDateAnterior TIMESTAMP;
+    DECLARE v_PeriodEndDateAnterior TIMESTAMP;
+	DECLARE v_fechaliquidacionAnterior VARCHAR(6);
+	DECLARE v_PeriodName VARCHAR(255);
+	DECLARE v_PeriodStartDate TIMESTAMP;
+    DECLARE v_PeriodEndDate TIMESTAMP;
+	DECLARE v_fechaliquidacion VARCHAR(6);
+	DECLARE v_caracter_unicode_49824 VARCHAR(5) := '힀';
+	DECLARE i_periodSeq_anterior BIGINT;
+	DECLARE v_PeriodName_anterior VARCHAR(255);
+	DECLARE v_PeriodStartDateCierre TIMESTAMP;
+    DECLARE v_PeriodEndDate_anterior TIMESTAMP;
+    
+    DECLARE TEMP_REPEXT_PAGOS_REPARTO_FILE TABLE (
+    	"PORCENTAJE_TRAMO2" DECIMAL(15, 2),
+		"TIPO_BASE_TRAMO2" VARCHAR(3),
+		"PORCENTAJE_TRAMO1" DECIMAL(15, 2),
+		"TIPO_BASE_TRAMO1" VARCHAR(3),
+		"NOMBRE_PERIODO" VARCHAR(2),
+		"TIPO_REPARTO" VARCHAR(255),
+		"CIA_CODIGO" VARCHAR(2),
+		"ESTADO_REPARTO" BIGINT,
+		"TIPO_DOCUMENTO" VARCHAR(1),
+		"EARNINGGROUPID" VARCHAR(255),
+		"EARNINGCODEID" VARCHAR(255),
+		"IMPORTE" DECIMAL(15, 2),
+		"DEPOSITSEQ" BIGINT,
+		"DEPOSITO" VARCHAR(255),
+		"TIPO_PAGO" VARCHAR(255),
+		"PROGRAMA" VARCHAR(255),
+		"NIF" VARCHAR(255),
+		"TIPO_AGENTE" DECIMAL(5, 2),
+		"FECHA_CARGO" VARCHAR(6),
+		"MANAGER_POS_PRIN" VARCHAR(255),
+		"POS_PRIN" VARCHAR(255),
+		"POS_CALLIDUS" VARCHAR(255),
+		"PERIODSEQ" BIGINT,
+		"POSITIONSEQ" BIGINT ,
+		"PARTICIPANTSEQ" BIGINT,
+		"PRODUCTO_HASTA" BIGINT,
+		"PRODUCTO_DESDE" BIGINT,
+		"COEF_CORRECTOR_TRAMO2" DECIMAL(15, 2),
+		"COEF_TIPO_BASE_TRAMO2" VARCHAR(3),
+		"COEF_CORRECTOR_TRAMO1" DECIMAL(15, 2),
+		"COEF_TIPO_BASE_TRAMO1" VARCHAR(3)
+    );
+	
+	
+	-- CONTROLADOR DE EXCEPCIONES
+	DECLARE EXIT HANDLER FOR SQLEXCEPTION BEGIN ROLLBACK;
+        CALL EXT.LIB_GLOBAL :WRITE_LOG (v_permisos_log,v_proc_name,v_proc_name_secundario || ' Error en procedimiento principal ' || v_proc_name_secundario || ' - SQL_ERROR_MESSAGE: ' || IFNULL(::SQL_ERROR_MESSAGE, '') || '. SQL_ERROR_CODE: ' || ::SQL_ERROR_CODE,v_log_count,v_idproceso,'error');
+        
+	    COMMIT;
+        -- RESIGNAL;
+
+    END;
+    
+    
+    
+    --Rellenamos las variables de entrada del procedimiento si se ejecuta por separado de la carga.
+	IF v_idproceso = 0 THEN
+		v_log_count := 0;
+		-- SELECT EXT.ID_PROCESO.NEXTVAL INTO v_idproceso FROM DUMMY;
+	END IF;
+    
+    CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name, v_proc_name_secundario || ' Version: ' || v_version || ' - Procedure starting...' , v_log_count, v_idproceso, 'info');
+    
+    IF i_tipo_reparto = 'BALANCE' THEN
+    	SELECT STARTDATE INTO v_PeriodStartDateCierre FROM CS_PERIOD WHERE PERIODSEQ = i_PeriodSeq;
+    	
+    	SELECT PERIODSEQ,PER.NAME,STARTDATE,ENDDATE INTO v_PeriodSeqAnterior, v_PeriodNameAnterior,v_PeriodStartDateAnterior,v_PeriodEndDateAnterior
+		FROM CS_PERIOD PER
+		INNER JOIN TCMP.CS_CALENDAR CAL ON CAL.CALENDARSEQ = PER.CALENDARSEQ
+			AND CAL.REMOVEDATE = v_eot
+			AND UPPER(CAL.NAME) = 'MAIN MONTHLY CALENDAR'
+		WHERE PER.PERIODTYPESEQ = 2814749767106561 AND PER.REMOVEDATE = v_eot
+			AND PER.ENDDATE = v_PeriodStartDateCierre
+		;
+		
+	
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name, v_proc_name_secundario || ' Periodo obtenido BALANCE (NUEVA BASE REPARTO) = ' || v_PeriodNameAnterior || ' PeriodSeqAnterior: ' || v_periodSeqAnterior || ' StartDateAnterior: ' || v_PERIODSTARTDATEAnterior || ' EndDateAnterior: ' || v_PeriodEndDateAnterior, v_log_count, v_idproceso, 'info');
+	
+    
+    END IF;
+	
+	CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name, v_proc_name_secundario || ' Parámetros entrada. i_tipo_reparto: ' || i_tipo_reparto || ' ,i_PERIODSEQ: ' || i_PERIODSEQ , v_log_count, v_idproceso, 'info');
+	
+	
+	/*******************************SOLO EN TEST******************************/
+	
+    -- TRUNCATE TABLE EXT.FINAL_REPEXT_FILE_TEST;
+    -- TRUNCATE TABLE EXT.FINAL_REPEXT_PAGOS_FILE_TEST;
+    -- INSERT INTO EXT.FINAL_REPEXT_PAGOS_FILE_TEST
+    -- SELECT * FROM EXT.FINAL_REPEXT_PAGOS_FILE WHERE PERIODSEQ IN (i_periodseq,v_periodseqAnterior)
+    -- AND POS_CALLIDUS = '04606715E0000'
+    -- -- AND DEPOSITSEQ = 18858824107547168
+    -- ;
+   
+    -- UPDATE EXT.FINAL_REPEXT_PAGOS_FILE_TEST SET ESTADO_REPARTO = 1 WHERE PERIODSEQ = i_periodseq;
+    -- UPDATE EXT.FINAL_REPEXT_PAGOS_FILE_TEST SET TIPO_LIQ = 'BALANCE' WHERE PERIODSEQ = i_periodseq AND TIPO_LIQ = '';
+    
+    -- SELECT 'INICIO',* FROM EXT.FINAL_REPEXT_PAGOS_FILE_TEST;
+    
+	INSERT INTO :TEMP_REPEXT_PAGOS_REPARTO_FILE(PARTICIPANTSEQ, POSITIONSEQ, PERIODSEQ, POS_CALLIDUS, POS_PRIN, MANAGER_POS_PRIN, FECHA_CARGO, TIPO_AGENTE, NIF, PROGRAMA
+            	, TIPO_PAGO, DEPOSITO, DEPOSITSEQ,IMPORTE, EARNINGCODEID, EARNINGGROUPID, TIPO_DOCUMENTO, ESTADO_REPARTO, CIA_CODIGO, TIPO_REPARTO, NOMBRE_PERIODO
+            	, TIPO_BASE_TRAMO1 , PORCENTAJE_TRAMO1, TIPO_BASE_TRAMO2, PORCENTAJE_TRAMO2, COEF_TIPO_BASE_TRAMO1, COEF_CORRECTOR_TRAMO1, COEF_TIPO_BASE_TRAMO2, COEF_CORRECTOR_TRAMO2
+            	, PRODUCTO_DESDE,PRODUCTO_HASTA
+            ) 
+                SELECT
+                    P.PARTICIPANTSEQ,
+                    P.POSITIONSEQ,
+                    P.PERIODSEQ,
+                    P.POS_CALLIDUS,
+                    P.POS_PRIN,
+                    P.MANAGER_POS_PRIN,
+                    P.FECHA_CARGO,
+                    P.TIPO_AGENTE,
+                    P.NIF,
+                    P.PROGRAMA,
+                    P.TIPO_PAGO,
+                    --Incluimos tambien el campo DEPOSITO para poder inclirlo en la tabla final de cara a los informes.
+                    P.DEPOSITO,
+                    --Incluimos el campo DEPOSITSEQ para poder hacer unicos los pagos.
+                    P.DEPOSITSEQ,
+                    --No podemos sumar los pagos porque sino tenemos problemas con los balances. Ej: 0889000218 en agosto 2021.
+                    P.IMPORTE,
+                    P.EARNINGCODEID,
+                    P.EARNINGGROUPID,
+                    --Incluimos tambien el campo TIPO_DOCUMENTO para poder diferenciar los pagos del cierre y de la LC.
+                    P.TIPO_DOCUMENTO,
+                    P.ESTADO_REPARTO,
+                    TRIM(TR.CIA_CODIGO),
+                    TRIM(TR.TIPO_REPARTO),
+                    TRIM(R.NOMBRE_PERIODO),
+                    TRIM(R.TIPO_BASE_TRAMO1),R.PORCENTAJE_TRAMO1,
+                    TRIM(R.TIPO_BASE_TRAMO2),R.PORCENTAJE_TRAMO2,
+                    TRIM(CR.TIPO_BASE_TRAMO1) AS COEF_TIPO_BASE_TRAMO1,CR.COEF_CORRECTOR_TRAMO1,
+                    TRIM(CR.TIPO_BASE_TRAMO2) AS COEF_TIPO_BASE_TRAMO2,CR.COEF_CORRECTOR_TRAMO2,
+                    TRIM(CR.PRODUCTO_DESDE),TRIM(CR.PRODUCTO_HASTA)
+                FROM EXT.FINAL_REPEXT_PAGOS_FILE_TEST P
+                INNER JOIN EXT.WF_REPEXT_TIPO_REPARTO_FILE TR ON P.TIPO_PAGO = TR.TIPO_PAGO
+                    AND SUBSTR(P.EARNINGGROUPID,7,2) = TR.CIA_CODIGO
+                    AND (P.TIPO_AGENTE = TR.TIPO_AGENTE OR TR.TIPO_AGENTE = 999) 
+                    AND P.FECHA_CARGO BETWEEN TR.FECHA_INICIO AND TR.FECHA_FIN
+                    AND TR.FECHA_BAJA IS NULL
+                INNER JOIN EXT.WF_REPEXT_REPARTO_FILE R ON TR.TIPO_REPARTO = R.TIPO_REPARTO
+                    AND SUBSTR(P.EARNINGGROUPID,7,2) = R.CIA_CODIGO
+                    AND P.FECHA_CARGO BETWEEN R.FECHA_INICIO AND R.FECHA_FIN
+                    AND R.FECHA_BAJA IS NULL
+                INNER JOIN EXT.WF_REPEXT_COEFICIENTES_REPARTO_FILE CR ON R.TIPO_REPARTO = CR.TIPO_REPARTO
+                    AND SUBSTR(P.EARNINGGROUPID,7,2) = CR.CIA_CODIGO
+                    AND P.FECHA_CARGO BETWEEN CR.FECHA_INICIO AND CR.FECHA_FIN
+                    AND CR.FECHA_BAJA IS NULL
+                WHERE P.PERIODSEQ = i_periodSeq;
+                
+            v_num_rows = RECORD_COUNT(:TEMP_REPEXT_PAGOS_REPARTO_FILE);
+                
+            CALL EXT.LIB_CONSTANTES:WRITE_LOG(v_permisos_log,v_proc_name,'Fin Carga de la tabla TEMP_REPEXT_PAGOS_REPARTO_FILE: '|| v_num_rows || ' filas.', v_log_count, v_idproceso, 'info');
+
+	/******************************FIN*******************************************/
+-- 		---------------------------------------------------------------------------------------------------
+-- 		----------------------------------------  REPARTO PAGOS DIRECTOS ----------------------------------
+-- 		---------------------------------------------------------------------------------------------------
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name, v_proc_name_secundario || ' Inicio Reparto Pagos Directos.', v_log_count, v_idproceso, 'info');
+		
+        
+        TEMP_PAGOS_DIRECTOS = SELECT *
+    		FROM EXT.FINAL_REPEXT_PAGOS_FILE_TEST
+        	WHERE PERIODSEQ = i_periodSeq
+        	--   AND POS_PRIN = v_c_position_pos_prin
+        	AND (SUBSTR(EARNINGCODEID,1,1) IN ('1','2','5') OR SUBSTR(EARNINGCODEID,4,1) = '-')
+        	AND (SUBSTR(EARNINGCODEID,1,3) NOT IN ('128','202') OR SUBSTR(EARNINGCODEID,4,1) = '-')
+        	AND ESTADO_REPARTO NOT IN (2,3)
+        	;
+        CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name, v_proc_name_secundario || ' TEMP_PAGOS_DIRECTOS ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+      
+        ---------------------------------------------------------------------------------------------------
+		-- 101-01_RT	
+		---------------------------------------------------------------------------------------------------
+		--PAGOS
+		TEMP_PAGOS_DIRECTOS_101_01_RT = SELECT *
+    		FROM :TEMP_PAGOS_DIRECTOS
+    		WHERE SUBSTRING(EARNINGGROUPID,7,5) = '01-RT'
+    		AND EARNINGCODEID = '101';
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_PAGOS_DIRECTOS_101_01_RT: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+		--BASES
+		IF i_tipo_reparto = 'CIERRE' THEN
+			TEMP_BASES_101_01_RT = SELECT * 
+    			FROM EXT.FINAL_BASES_REPARTO_POLIZA_FILE B
+    			WHERE PERIODSEQ = i_periodSeq
+    			-- EARNINGGROUPID = '01-RT'
+    			AND PRODUCTID LIKE '012%'
+    			-- EARNINGCODEID = '101'
+    			AND (EVENTTYPEID IN ('71','65','66','72','42')
+    				   OR (EVENTTYPEID = '43' AND SALESTRANSACTIONSEQ IN (
+    			        SELECT T.SALESTRANSACTIONSEQ FROM EXT.TEMP_REPEXT_TXN_FILE T
+    			        WHERE T.SALESTRANSACTIONSEQ = B.SALESTRANSACTIONSEQ
+    			        AND T.FECHA_EFECTO > ADD_MONTHS(T.FECHA_VTO_RECIBO,-12)
+    			    )))
+    			;
+    		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_BASES_101_01_RT ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+    	ELSE
+    		TEMP_BASES_101_01_RT = SELECT * 
+				FROM EXT.FINAL_BASES_REPARTO_POLIZA_FILE_NUEVA_BASE_REPARTO B
+				WHERE PERIODSEQ = v_periodSeqAnterior
+				-- EARNINGGROUPID = '01-RT'
+				AND PRODUCTID LIKE '012%'
+				-- EARNINGCODEID = '101'
+				AND (EVENTTYPEID IN ('71','65','66','72','42')
+					   OR (EVENTTYPEID = '43' AND SALESTRANSACTIONSEQ IN (
+				        SELECT T.SALESTRANSACTIONSEQ FROM EXT.TEMP_REPEXT_TXN_FILE T
+				        WHERE T.SALESTRANSACTIONSEQ = B.SALESTRANSACTIONSEQ
+				        AND T.FECHA_EFECTO > ADD_MONTHS(T.FECHA_VTO_RECIBO,-12)
+				    )))
+				;
+			CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_BASES_101_01_RT (BALANCE): ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		END IF;
+		
+   -- 	--BASES_TOTAL_IMPORTE
+   -- 	BASES_TOTAL_IMPORTE_101_01_RT = 
+			-- SELECT POSITIONSEQ, SUM(IMPORTE_COMISION) AS SUMA_IMPORTE
+			-- FROM :TEMP_BASES_101_01_RT
+			-- WHERE IMPORTE_COMISION <> 0
+			-- GROUP BY POSITIONSEQ;
+		
+		
+    	--FINAL
+    	TEMP_FINAL_PAGOS_BASES_101_01_RT = SELECT P.PARTICIPANTSEQ,
+                                P.POSITIONSEQ,
+                                P.PERIODSEQ,
+                                :v_periodName AS PERIODO,
+                                P.POS_CALLIDUS POSITIONNAME,
+                                P.POS_PRIN,
+                                P.NIF,
+                                P.MANAGER_POS_PRIN,
+                                ORDERID,
+                                LINENUMBER,
+                                SUBLINENUMBER,
+                                EVENTTYPEID,
+                                PRODUCTID,
+                                CODIGO_POLIZA,
+                                COMPENSATIONDATE,
+                                ESTADO,
+                                P.PROGRAMA,
+                                P.TIPO_PAGO,
+                                P.DEPOSITO,
+                                P.DEPOSITSEQ,
+                                P.IMPORTE IMPORTE_PAGO,
+                                P.EARNINGCODEID,
+                                P.EARNINGGROUPID,
+                                P.TIPO_DOCUMENTO,
+                                P.TIPO_AGENTE,
+                                B.IMPORTE_COMISION AS IMPORTE,
+                              (SELECT SUM(IMPORTE_COMISION)
+                                	FROM :TEMP_BASES_101_01_RT S
+                                	WHERE S.POSITIONSEQ = B.POSITIONSEQ
+                                	AND ((RIGHT(P.EARNINGGROUPID,3) = 'AUT' AND S.AUTOLIQUIDA = 1)
+											OR
+										 (RIGHT(P.EARNINGGROUPID,3) <> 'AUT' AND IFNULL(S.AUTOLIQUIDA,0) = 0))
+                                ) AS SUMA_IMPORTE,
+                                NULL AS TIPO_REPARTO,
+                                0 AS NUM_TRAMO,
+                                NULL AS REPARTO_TIPO_BASE,
+                                NULL AS REPARTO_PORCENTAJE,
+                                POLIZA_FISICA,
+                                POLIZA_CORREGIDA,
+                                PRIMA_CORREGIDA,
+                                PRIMA_NETA,
+                                PRIMA_NETA_ANUAL,
+                                PRIMA_COMIS_S4 PRIMA_COMIS,
+                                NULL AS COEF_TIPO_BASE,
+                                NULL AS COEF_CORRECTOR,
+                                COD_AGENTE,
+                                P.TIPO_LIQ
+    					FROM :TEMP_PAGOS_DIRECTOS_101_01_RT P
+    					INNER JOIN :TEMP_BASES_101_01_RT B ON P.POSITIONSEQ = B.POSITIONSEQ
+    					--INNER JOIN :BASES_TOTAL_IMPORTE_101_01_RT BT ON BT.POSITIONSEQ = B.POSITIONSEQ
+    					WHERE 
+    					-- TIPO CONCEPTO: IMPORTE_COMISION
+    					B.IMPORTE_COMISION <> 0
+    					AND NOT EXISTS (
+    					    SELECT 1 
+    					    FROM EXT.FINAL_REPEXT_FILE_TEST X 
+    					    WHERE X.POS_PRIN       = P.POS_PRIN
+    					      AND X.PERIODSEQ      = P.PERIODSEQ
+    					      AND X.EARNINGCODEID  = P.EARNINGCODEID
+    					      AND X.EARNINGGROUPID = P.EARNINGGROUPID
+    					      AND X.TIPO_DOCUMENTO = P.TIPO_DOCUMENTO
+    					      AND X.ORDERID        = B.ORDERID
+    					      AND X.LINENUMBER     = B.LINENUMBER
+    					      AND X.SUBLINENUMBER  = B.SUBLINENUMBER
+    					      AND X.EVENTTYPEID    = B.EVENTTYPEID
+    					)
+    					AND (
+    	    				(RIGHT(P.EARNINGGROUPID,3) = 'AUT' AND B.AUTOLIQUIDA = 1)
+	        				OR
+	        				(RIGHT(P.EARNINGGROUPID,3) <> 'AUT' AND IFNULL(B.AUTOLIQUIDA,0) = 0)
+    					);
+						
+--  				--LFC: SOLUCIÓN PROPUESTA PARA MEJORAR RENDIMIENTO  
+-- 								(SELECT SUM(IMPORTE_COMISION)
+--                                 	FROM :TEMP_BASES_101_01_RT S
+--                                 	WHERE S.POSITIONSEQ = B.POSITIONSEQ
+--                                 	AND ((RIGHT(P.EARNINGGROUPID,3) = 'AUT' AND S.AUTOLIQUIDA = 1)
+-- 											OR
+-- 										 (RIGHT(P.EARNINGGROUPID,3) <> 'AUT' AND IFNULL(S.AUTOLIQUIDA,0) = 0))
+--                                 ) AS SUMA_IMPORTE,
+								 
+								
+    					
+    	CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_FINAL_PAGOS_BASES_101_01_RT ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+    	
+    	
+		--LIQUIDACIÓN COMPLEMENTARIA
+		IF v_num_post > 1 AND i_tipo_reparto = 'CIERRE' THEN
+		
+			TEMP_PAGOS_DIRECTOS_101_01_RT_LC = SELECT SUM(IMPORTE) SUMA_PAGOS,PERIODSEQ,POS_PRIN,EARNINGGROUPID,EARNINGCODEID,DEPOSITO 
+				FROM :TEMP_FINAL_PAGOS_BASES_101_01_RT 
+				WHERE TIPO_LIQ IN ('CIERRE','LIQ')
+				GROUP BY PERIODSEQ,POS_PRIN,EARNINGGROUPID,EARNINGCODEID,DEPOSITO;
+		
+			INSERT INTO EXT.FINAL_REPEXT_FILE_TEST("TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+		        ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+		        ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+		        ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ")
+		    SELECT "TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+		        ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE"*(-1),"TIPO_AGENTE","TIPO_DOCUMENTO",TF."EARNINGGROUPID"
+		        ,TF."EARNINGCODEID",TF.SUMA_IMPORTE,"DEPOSITSEQ",TF."DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+		        ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF",TF."POS_PRIN","POSITIONNAME","PERIODO",TF."PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ"
+		    FROM :TEMP_FINAL_PAGOS_BASES_101_01_RT TF 
+		    	INNER JOIN :TEMP_PAGOS_DIRECTOS_101_01_RT_LC TLC ON TF.PERIODSEQ = TLC.PERIODSEQ AND TF.POS_PRIN = TLC.POS_PRIN 
+		    	AND TF.EARNINGGROUPID = TLC.EARNINGGROUPID AND TF.EARNINGCODEID = TLC. EARNINGCODEID AND TF.DEPOSITO = TLC.DEPOSITO
+		    	AND 1 = (CASE WHEN SUMA_PAGOS <> SUMA_IMPORTE THEN 1 END); 
+		 END IF;
+    	-- FIN LIQUIDACIÓN COMPLEMENTARIA
+    	
+    
+    	UPDATE F
+    	SET ESTADO_REPARTO = CASE 
+    		WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 2
+			WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 3
+			ELSE 4 
+		END
+		FROM EXT.FINAL_REPEXT_PAGOS_FILE_TEST F
+		INNER JOIN :TEMP_FINAL_PAGOS_BASES_101_01_RT T ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+		AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID;
+		
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_PAGOS_FILE_TEST ESTADOS ACTUALIZADOS ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+	
+		UPDATE F
+            SET ESTADO_REPARTO = CASE 
+    				WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 2
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 3
+					ELSE 4 
+				END --REPARTO CORRECTO
+			FROM :TEMP_REPEXT_PAGOS_REPARTO_FILE F
+			INNER JOIN :TEMP_FINAL_PAGOS_BASES_101_01_RT T ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+			AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+			WHERE 1 = (CASE 
+    				WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 1
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+					ELSE 0 
+				END)
+	--		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID
+			;
+        CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_REPEXT_PAGOS_REPARTO_FILE ESTADOS ACTUALIZADOS: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');   
+                                   
+		
+		INSERT INTO EXT.FINAL_REPEXT_FILE_TEST("TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+            ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+            ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+            ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ")
+        SELECT "TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+            ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+            ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+            ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ"
+        FROM :TEMP_FINAL_PAGOS_BASES_101_01_RT 
+        WHERE 1 = (
+        	CASE 
+        		WHEN (IMPORTE_PAGO - IFNULL(SUMA_IMPORTE,0)) = 0 THEN 1
+    			WHEN (IMPORTE_PAGO - IFNULL(SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+    		ELSE 0 
+    		END);			
+		---------------------------------------------------------------------------------------------------
+		
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_FILE_TEST INSERTADOS: ' ||::ROWCOUNT, v_log_count, v_idproceso, 'info');		
+
+		TEMP_FINAL_PAGOS_BASES_101_01_RT_DIF =
+			SELECT T.PERIODSEQ,T.POS_PRIN,T.TIPO_DOCUMENTO,T.DEPOSITSEQ,T.EARNINGCODEID,T.EARNINGGROUPID,T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0) AS DIF,
+					T.ORDERID,T.LINENUMBER,T.SUBLINENUMBER,T.EVENTTYPEID, T.COMPENSATIONDATE,
+				ROW_NUMBER() OVER(
+                      		PARTITION BY T.PERIODSEQ,T.POS_PRIN,T.TIPO_DOCUMENTO,T.DEPOSITSEQ,T.EARNINGCODEID,T.EARNINGGROUPID
+                      		--ORDER BY T.ORDERID
+                      ) AS RN_TRX
+			FROM :TEMP_FINAL_PAGOS_BASES_101_01_RT T
+			WHERE 1 = (CASE 
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 0
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+					ELSE 0 
+				END)
+		;
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_FINAL_PAGOS_BASES_101_01_RT_DIF ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+		UPDATE F
+    	SET F.IMPORTE = F.IMPORTE + T.DIF
+    	FROM EXT.FINAL_REPEXT_FILE_TEST F
+    	INNER JOIN :TEMP_FINAL_PAGOS_BASES_101_01_RT_DIF T  ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+		AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID
+		AND F.ORDERID = T.ORDERID AND F.LINENUMBER = T.LINENUMBER AND F.SUBLINENUMBER = T.SUBLINENUMBER AND F.EVENTTYPEID = T.EVENTTYPEID AND F.COMPENSATIONDATE = T.COMPENSATIONDATE
+		AND T.RN_TRX = 1
+		;
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_FILE_TEST IMPORTE_DIF: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+	
+		---------------------------------------------------------------------------------------------------
+		-- 101-01_RG	
+		---------------------------------------------------------------------------------------------------
+		--PAGOS
+		TEMP_PAGOS_DIRECTOS_101_01_RG = SELECT *
+    		FROM :TEMP_PAGOS_DIRECTOS
+    		WHERE SUBSTRING(EARNINGGROUPID,7,5) = '01-RG'
+    		AND EARNINGCODEID = '101';
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_PAGOS_DIRECTOS_101_01_RG ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+		--BASES
+		IF i_tipo_reparto = 'CIERRE' THEN
+			TEMP_BASES_101_01_RG = SELECT * 
+    			FROM EXT.FINAL_BASES_REPARTO_POLIZA_FILE B
+    			WHERE PERIODSEQ = i_periodSeq
+    			-- EARNINGGROUPID = '01-RG'
+    			AND PRODUCTID LIKE '01%' AND PRODUCTID NOT LIKE '012%'
+    			-- EARNINGCODEID = '101'
+    			AND (EVENTTYPEID IN ('71','65','66','72','42')
+    				   OR (EVENTTYPEID = '43' AND SALESTRANSACTIONSEQ IN (
+    			        SELECT T.SALESTRANSACTIONSEQ FROM EXT.TEMP_REPEXT_TXN_FILE T
+    			        WHERE T.SALESTRANSACTIONSEQ = B.SALESTRANSACTIONSEQ
+    			        AND T.FECHA_EFECTO > ADD_MONTHS(T.FECHA_VTO_RECIBO,-12)
+    			    )))
+    			;
+    		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_BASES_101_01_RG ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+    	ELSE
+    		TEMP_BASES_101_01_RG = SELECT * 
+    			FROM EXT.FINAL_BASES_REPARTO_POLIZA_FILE_NUEVA_BASE_REPARTO B
+    			WHERE PERIODSEQ = v_periodSeqAnterior
+    			-- EARNINGGROUPID = '01-RG'
+    			AND PRODUCTID LIKE '01%' AND PRODUCTID NOT LIKE '012%'
+    			-- EARNINGCODEID = '101'
+    			AND (EVENTTYPEID IN ('71','65','66','72','42')
+    				   OR (EVENTTYPEID = '43' AND SALESTRANSACTIONSEQ IN (
+    			        SELECT T.SALESTRANSACTIONSEQ FROM EXT.TEMP_REPEXT_TXN_FILE T
+    			        WHERE T.SALESTRANSACTIONSEQ = B.SALESTRANSACTIONSEQ
+    			        AND T.FECHA_EFECTO > ADD_MONTHS(T.FECHA_VTO_RECIBO,-12)
+    			    )))
+    			;
+    		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_BASES_101_01_RG (BALANCE) ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+    	END IF;
+   -- 	--BASES_TOTAL_IMPORTE
+   -- 	BASES_TOTAL_IMPORTE_101_01_RG = 
+			-- SELECT POSITIONSEQ, SUM(IMPORTE_COMISION) AS SUMA_IMPORTE
+			-- FROM :TEMP_BASES_101_01_RG
+			-- WHERE IMPORTE_COMISION <> 0
+			-- GROUP BY POSITIONSEQ; 
+		-- SELECT 'XXXX',*--SUM(IMPORTE_COMISION)
+  --                              	FROM :TEMP_BASES_101_01_RG S
+  --                              	WHERE S.POSITIONSEQ = 4785074604176708
+  --                              	;
+    	--FINAL
+    	TEMP_FINAL_PAGOS_BASES_101_01_RG = SELECT P.PARTICIPANTSEQ,
+                                P.POSITIONSEQ,
+                                P.PERIODSEQ,
+                                :v_periodName AS PERIODO,
+                                P.POS_CALLIDUS POSITIONNAME,
+                                P.POS_PRIN,
+                                P.NIF,
+                                P.MANAGER_POS_PRIN,
+                                ORDERID,
+                                LINENUMBER,
+                                SUBLINENUMBER,
+                                EVENTTYPEID,
+                                PRODUCTID,
+                                CODIGO_POLIZA,
+                                COMPENSATIONDATE,
+                                ESTADO,
+                                P.PROGRAMA,
+                                P.TIPO_PAGO,
+                                P.DEPOSITO,
+                                P.DEPOSITSEQ,
+                                P.IMPORTE IMPORTE_PAGO,
+                                P.EARNINGCODEID,
+                                P.EARNINGGROUPID,
+                                P.TIPO_DOCUMENTO,
+                                P.TIPO_AGENTE,
+                                B.IMPORTE_COMISION AS IMPORTE,
+                                (SELECT SUM(IMPORTE_COMISION)
+                                	FROM :TEMP_BASES_101_01_RG S
+                                	WHERE S.POSITIONSEQ = B.POSITIONSEQ
+                                	AND ((RIGHT(P.EARNINGGROUPID,3) = 'AUT' AND S.AUTOLIQUIDA = 1)
+											OR
+										 (RIGHT(P.EARNINGGROUPID,3) <> 'AUT' AND IFNULL(S.AUTOLIQUIDA,0) = 0))
+                                ) AS SUMA_IMPORTE,
+                                NULL AS TIPO_REPARTO,
+                                0 AS NUM_TRAMO,
+                                NULL AS REPARTO_TIPO_BASE,
+                                NULL AS REPARTO_PORCENTAJE,
+                                POLIZA_FISICA,
+                                POLIZA_CORREGIDA,
+                                PRIMA_CORREGIDA,
+                                PRIMA_NETA,
+                                PRIMA_NETA_ANUAL,
+                                PRIMA_COMIS_S4 PRIMA_COMIS,
+                                NULL AS COEF_TIPO_BASE,
+                                NULL AS COEF_CORRECTOR,
+                                COD_AGENTE,
+                                P.TIPO_LIQ
+    					FROM :TEMP_PAGOS_DIRECTOS_101_01_RG P
+    					INNER JOIN :TEMP_BASES_101_01_RG B ON P.POSITIONSEQ = B.POSITIONSEQ
+    					--INNER JOIN :BASES_TOTAL_IMPORTE_101_01_RG BT ON BT.POSITIONSEQ = B.POSITIONSEQ
+    					WHERE 
+    					-- TIPO CONCEPTO: IMPORTE_COMISION
+    					B.IMPORTE_COMISION <> 0
+    					AND NOT EXISTS (
+    					    SELECT 1 
+    					    FROM EXT.FINAL_REPEXT_FILE_TEST X 
+    					    WHERE X.POS_PRIN       = P.POS_PRIN
+    					      AND X.PERIODSEQ      = P.PERIODSEQ
+    					      AND X.EARNINGCODEID  = P.EARNINGCODEID
+    					      AND X.EARNINGGROUPID = P.EARNINGGROUPID
+    					      AND X.TIPO_DOCUMENTO = P.TIPO_DOCUMENTO
+    					      AND X.ORDERID        = B.ORDERID
+    					      AND X.LINENUMBER     = B.LINENUMBER
+    					      AND X.SUBLINENUMBER  = B.SUBLINENUMBER
+    					      AND X.EVENTTYPEID    = B.EVENTTYPEID
+    					)
+    					AND (
+    	    				(RIGHT(P.EARNINGGROUPID,3) = 'AUT' AND B.AUTOLIQUIDA = 1)
+	        				OR
+	        				(RIGHT(P.EARNINGGROUPID,3) <> 'AUT' AND IFNULL(B.AUTOLIQUIDA,0) = 0)
+    					)
+    					;
+    	CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_FINAL_PAGOS_BASES_101_01_RG: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+    	
+    	--LIQUIDACIÓN COMPLEMENTARIA
+		IF v_num_post > 1 AND i_tipo_reparto = 'CIERRE' THEN
+		
+			TEMP_PAGOS_DIRECTOS_101_01_RG_LC = SELECT SUM(IMPORTE) SUMA_PAGOS,PERIODSEQ,POS_PRIN,EARNINGGROUPID,EARNINGCODEID,DEPOSITO 
+				FROM :TEMP_FINAL_PAGOS_BASES_101_01_RG
+				WHERE TIPO_LIQ IN ('CIERRE','LIQ')
+				GROUP BY PERIODSEQ,POS_PRIN,EARNINGGROUPID,EARNINGCODEID,DEPOSITO;
+		
+			INSERT INTO EXT.FINAL_REPEXT_FILE_TEST("TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+		        ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+		        ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+		        ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ")
+		    SELECT "TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+		        ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE"*(-1),"TIPO_AGENTE","TIPO_DOCUMENTO",TF."EARNINGGROUPID"
+		        ,TF."EARNINGCODEID",TF.SUMA_IMPORTE,"DEPOSITSEQ",TF."DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+		        ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF",TF."POS_PRIN","POSITIONNAME","PERIODO",TF."PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ"
+		    FROM :TEMP_FINAL_PAGOS_BASES_101_01_RG TF 
+		    	INNER JOIN :TEMP_PAGOS_DIRECTOS_101_01_RG_LC TLC ON TF.PERIODSEQ = TLC.PERIODSEQ AND TF.POS_PRIN = TLC.POS_PRIN 
+		    	AND TF.EARNINGGROUPID = TLC.EARNINGGROUPID AND TF.EARNINGCODEID = TLC. EARNINGCODEID AND TF.DEPOSITO = TLC.DEPOSITO
+		    	AND 1 = (CASE WHEN SUMA_PAGOS <> SUMA_IMPORTE THEN 1 END); 
+		 END IF;
+    	-- FIN LIQUIDACIÓN COMPLEMENTARIA
+    	
+    	UPDATE F
+    	SET ESTADO_REPARTO = CASE 
+    		WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 2
+			WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 3
+			ELSE 4
+		END
+		FROM EXT.FINAL_REPEXT_PAGOS_FILE_TEST F
+		INNER JOIN :TEMP_FINAL_PAGOS_BASES_101_01_RG T ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+		AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID;
+		
+		-- SELECT '*-*-*',T.IMPORTE_PAGO IPAGO,IFNULL(T.SUMA_IMPORTE,0) SIMPORTE,*
+		-- FROM EXT.FINAL_REPEXT_PAGOS_FILE_TEST F
+		-- INNER JOIN :TEMP_FINAL_PAGOS_BASES_101_01_RG T ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+		-- AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+		-- AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID
+		-- ORDER BY T.IMPORTE DESC;
+		
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_PAGOS_FILE_TEST ESTADOS ACTUALIZADOS ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+		
+		UPDATE F
+            SET ESTADO_REPARTO = CASE 
+    				WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 2
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 3
+					ELSE 4 
+				END --REPARTO CORRECTO
+			FROM :TEMP_REPEXT_PAGOS_REPARTO_FILE F
+			INNER JOIN :TEMP_FINAL_PAGOS_BASES_101_01_RG T ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+			AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+	--		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID
+			WHERE 1 = (CASE 
+    				WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 1
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+					ELSE 0 
+				END)
+			;
+        CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_REPEXT_PAGOS_REPARTO_FILE ESTADOS ACTUALIZADOS: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');   
+		
+		INSERT INTO EXT.FINAL_REPEXT_FILE_TEST("TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+            ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+            ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+            ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ")
+        SELECT "TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+            ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+            ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+            ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ"
+        FROM :TEMP_FINAL_PAGOS_BASES_101_01_RG
+        WHERE 1 = (
+        	CASE 
+        		WHEN (IMPORTE_PAGO - IFNULL(SUMA_IMPORTE,0)) = 0 THEN 1
+    			WHEN (IMPORTE_PAGO - IFNULL(SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+    		ELSE 0 
+    		END);
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_FILE_TEST INSERTADOS: ' ||::ROWCOUNT, v_log_count, v_idproceso, 'info');			
+		---------------------------------------------------------------------------------------------------
+
+		TEMP_FINAL_PAGOS_BASES_101_01_RG_DIF =
+			SELECT T.PERIODSEQ,T.POS_PRIN,T.TIPO_DOCUMENTO,T.DEPOSITSEQ,T.EARNINGCODEID,T.EARNINGGROUPID,T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0) AS DIF,
+					T.ORDERID,T.LINENUMBER,T.SUBLINENUMBER,T.EVENTTYPEID, T.COMPENSATIONDATE,
+				ROW_NUMBER() OVER(
+                      		PARTITION BY T.PERIODSEQ,T.POS_PRIN,T.TIPO_DOCUMENTO,T.DEPOSITSEQ,T.EARNINGCODEID,T.EARNINGGROUPID
+                      		--ORDER BY T.ORDERID
+                      ) AS RN_TRX
+			FROM :TEMP_FINAL_PAGOS_BASES_101_01_RG T
+			WHERE 1 = (CASE 
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 0
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+					ELSE 0 
+				END)
+		;
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_FINAL_PAGOS_BASES_101_01_RG_DIF ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+		UPDATE F
+    	SET F.IMPORTE = F.IMPORTE + T.DIF
+    	FROM EXT.FINAL_REPEXT_FILE_TEST F
+    	INNER JOIN :TEMP_FINAL_PAGOS_BASES_101_01_RG_DIF T  ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+		AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID
+		AND F.ORDERID = T.ORDERID AND F.LINENUMBER = T.LINENUMBER AND F.SUBLINENUMBER = T.SUBLINENUMBER AND F.EVENTTYPEID = T.EVENTTYPEID AND F.COMPENSATIONDATE = T.COMPENSATIONDATE
+		AND T.RN_TRX = 1
+		;
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_FILE_TEST IMPORTE_DIF: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+		
+		
+		---------------------------------------------------------------------------------------------------
+		-- 101-03_RT	
+		---------------------------------------------------------------------------------------------------
+		--PAGOS
+		TEMP_PAGOS_DIRECTOS_101_03_RT = SELECT *
+    		FROM :TEMP_PAGOS_DIRECTOS
+    		WHERE SUBSTRING(EARNINGGROUPID,7,5) = '03-RT'
+    		AND EARNINGCODEID = '101';
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_PAGOS_DIRECTOS_101_03_RT: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+		--BASES
+		IF i_tipo_reparto = 'CIERRE' THEN
+			TEMP_BASES_101_03_RT = SELECT * 
+	    		FROM EXT.FINAL_BASES_REPARTO_POLIZA_FILE B
+	    		WHERE PERIODSEQ = i_periodSeq
+	    		-- EARNINGGROUPID = '01-RT'
+	    		AND PRODUCTID LIKE '032%'
+	    		-- EARNINGCODEID = '101'
+	    		AND (EVENTTYPEID IN ('71','65','66','72','42')
+	    			   OR (EVENTTYPEID = '43' AND SALESTRANSACTIONSEQ IN (
+	    		        SELECT T.SALESTRANSACTIONSEQ FROM EXT.TEMP_REPEXT_TXN_FILE T
+	    		        WHERE T.SALESTRANSACTIONSEQ = B.SALESTRANSACTIONSEQ
+	    		        AND T.FECHA_EFECTO > ADD_MONTHS(T.FECHA_VTO_RECIBO,-12)
+	    		    )));
+	    	CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_BASES_101_03_RT: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+	    ELSE
+	    	TEMP_BASES_101_03_RT = SELECT * 
+    			FROM EXT.FINAL_BASES_REPARTO_POLIZA_FILE_NUEVA_BASE_REPARTO B
+    			WHERE PERIODSEQ = v_periodSeqAnterior
+    			-- EARNINGGROUPID = '01-RT'
+    			AND PRODUCTID LIKE '032%'
+    			-- EARNINGCODEID = '101'
+    			AND (EVENTTYPEID IN ('71','65','66','72','42')
+    				   OR (EVENTTYPEID = '43' AND SALESTRANSACTIONSEQ IN (
+    			        SELECT T.SALESTRANSACTIONSEQ FROM EXT.TEMP_REPEXT_TXN_FILE T
+    			        WHERE T.SALESTRANSACTIONSEQ = B.SALESTRANSACTIONSEQ
+    			        AND T.FECHA_EFECTO > ADD_MONTHS(T.FECHA_VTO_RECIBO,-12)
+    			    )));
+    		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_BASES_101_03_RT (BALANCE): ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+    	END IF;
+    	
+   -- 	--BASES_TOTAL_IMPORTE
+   -- 	BASES_TOTAL_IMPORTE_101_03_RT = 
+			-- SELECT POSITIONSEQ, SUM(IMPORTE_COMISION) AS SUMA_IMPORTE
+			-- FROM :TEMP_BASES_101_03_RT
+			-- WHERE IMPORTE_COMISION <> 0
+			-- GROUP BY POSITIONSEQ;
+			
+    	--FINAL
+    	TEMP_FINAL_PAGOS_BASES_101_03_RT = SELECT P.PARTICIPANTSEQ,
+                                P.POSITIONSEQ,
+                                P.PERIODSEQ,
+                                :v_periodName AS PERIODO,
+                                P.POS_CALLIDUS POSITIONNAME,
+                                P.POS_PRIN,
+                                P.NIF,
+                                P.MANAGER_POS_PRIN,
+                                ORDERID,
+                                LINENUMBER,
+                                SUBLINENUMBER,
+                                EVENTTYPEID,
+                                PRODUCTID,
+                                CODIGO_POLIZA,
+                                COMPENSATIONDATE,
+                                ESTADO,
+                                P.PROGRAMA,
+                                P.TIPO_PAGO,
+                                P.DEPOSITO,
+                                P.DEPOSITSEQ,
+                                P.IMPORTE IMPORTE_PAGO,
+                                P.EARNINGCODEID,
+                                P.EARNINGGROUPID,
+                                P.TIPO_DOCUMENTO,
+                                P.TIPO_AGENTE,
+                                B.IMPORTE_COMISION AS IMPORTE,
+                                (SELECT SUM(IMPORTE_COMISION)
+                                	FROM :TEMP_BASES_101_03_RT S
+                                	WHERE S.POSITIONSEQ = B.POSITIONSEQ
+                                	AND ((RIGHT(P.EARNINGGROUPID,3) = 'AUT' AND S.AUTOLIQUIDA = 1)
+											OR
+										 (RIGHT(P.EARNINGGROUPID,3) <> 'AUT' AND IFNULL(S.AUTOLIQUIDA,0) = 0))
+                                ) AS SUMA_IMPORTE,
+                                NULL AS TIPO_REPARTO,
+                                0 AS NUM_TRAMO,
+                                NULL AS REPARTO_TIPO_BASE,
+                                NULL AS REPARTO_PORCENTAJE,
+                                POLIZA_FISICA,
+                                POLIZA_CORREGIDA,
+                                PRIMA_CORREGIDA,
+                                PRIMA_NETA,
+                                PRIMA_NETA_ANUAL,
+                                PRIMA_COMIS_S4 PRIMA_COMIS,
+                                NULL AS COEF_TIPO_BASE,
+                                NULL AS COEF_CORRECTOR,
+                                COD_AGENTE,
+                                P.TIPO_LIQ
+    					FROM :TEMP_PAGOS_DIRECTOS_101_03_RT P
+    					INNER JOIN :TEMP_BASES_101_03_RT B ON P.POSITIONSEQ = B.POSITIONSEQ
+    					--INNER JOIN :BASES_TOTAL_IMPORTE_101_03_RT BT ON BT.POSITIONSEQ = B.POSITIONSEQ
+    					WHERE 
+    					-- TIPO CONCEPTO: IMPORTE_COMISION
+    					B.IMPORTE_COMISION <> 0
+    					AND NOT EXISTS (
+    					    SELECT 1 
+    					    FROM EXT.FINAL_REPEXT_FILE_TEST X 
+    					    WHERE X.POS_PRIN       = P.POS_PRIN
+    					      AND X.PERIODSEQ      = P.PERIODSEQ
+    					      AND X.EARNINGCODEID  = P.EARNINGCODEID
+    					      AND X.EARNINGGROUPID = P.EARNINGGROUPID
+    					      AND X.TIPO_DOCUMENTO = P.TIPO_DOCUMENTO
+    					      AND X.ORDERID        = B.ORDERID
+    					      AND X.LINENUMBER     = B.LINENUMBER
+    					      AND X.SUBLINENUMBER  = B.SUBLINENUMBER
+    					      AND X.EVENTTYPEID    = B.EVENTTYPEID
+    					)
+    					AND (
+    	    				(RIGHT(P.EARNINGGROUPID,3) = 'AUT' AND B.AUTOLIQUIDA = 1)
+	        				OR
+	        				(RIGHT(P.EARNINGGROUPID,3) <> 'AUT' AND IFNULL(B.AUTOLIQUIDA,0) = 0)
+    					);
+    	CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_FINAL_PAGOS_BASES_101_03_RT: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+    	
+    	
+    	--LIQUIDACIÓN COMPLEMENTARIA
+		IF v_num_post > 1 AND i_tipo_reparto = 'CIERRE' THEN
+		
+			TEMP_PAGOS_DIRECTOS_101_03_RT_LC = SELECT SUM(IMPORTE) SUMA_PAGOS,PERIODSEQ,POS_PRIN,EARNINGGROUPID,EARNINGCODEID,DEPOSITO 
+				FROM :TEMP_FINAL_PAGOS_BASES_101_03_RT 
+				WHERE TIPO_LIQ IN ('CIERRE','LIQ')
+				GROUP BY PERIODSEQ,POS_PRIN,EARNINGGROUPID,EARNINGCODEID,DEPOSITO;
+		
+			INSERT INTO EXT.FINAL_REPEXT_FILE_TEST("TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+		        ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+		        ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+		        ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ")
+		    SELECT "TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+		        ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE"*(-1),"TIPO_AGENTE","TIPO_DOCUMENTO",TF."EARNINGGROUPID"
+		        ,TF."EARNINGCODEID",TF.SUMA_IMPORTE,"DEPOSITSEQ",TF."DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+		        ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF",TF."POS_PRIN","POSITIONNAME","PERIODO",TF."PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ"
+		    FROM :TEMP_FINAL_PAGOS_BASES_101_03_RT TF 
+		    	INNER JOIN :TEMP_PAGOS_DIRECTOS_101_03_RT_LC TLC ON TF.PERIODSEQ = TLC.PERIODSEQ AND TF.POS_PRIN = TLC.POS_PRIN 
+		    	AND TF.EARNINGGROUPID = TLC.EARNINGGROUPID AND TF.EARNINGCODEID = TLC. EARNINGCODEID AND TF.DEPOSITO = TLC.DEPOSITO
+		    	AND 1 = (CASE WHEN SUMA_PAGOS <> SUMA_IMPORTE THEN 1 END); 
+		 END IF;
+    	-- FIN LIQUIDACIÓN COMPLEMENTARIA
+    	
+    	UPDATE F
+    	SET ESTADO_REPARTO = CASE 
+    		WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 2
+			WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 3
+			ELSE 4 
+		END
+		FROM EXT.FINAL_REPEXT_PAGOS_FILE_TEST F
+		INNER JOIN :TEMP_FINAL_PAGOS_BASES_101_03_RT T ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+		AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID;
+		
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_FILE_TEST ESTADOS ACTUALIZADOS: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+		
+		UPDATE F
+            SET ESTADO_REPARTO = CASE 
+    				WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 2
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 3
+					ELSE 4 
+				END --REPARTO CORRECTO
+			FROM :TEMP_REPEXT_PAGOS_REPARTO_FILE F
+			INNER JOIN :TEMP_FINAL_PAGOS_BASES_101_03_RT T ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+			AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+	--		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID
+			WHERE 1 = (CASE 
+    				WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 1
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+					ELSE 0 
+				END)
+			;
+        CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_REPEXT_PAGOS_REPARTO_FILE ESTADOS ACTUALIZADOS: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');   
+		
+		INSERT INTO EXT.FINAL_REPEXT_FILE_TEST("TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+            ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+            ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+            ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ")
+        SELECT "TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+            ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+            ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+            ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ"
+        FROM :TEMP_FINAL_PAGOS_BASES_101_03_RT
+        WHERE 1 = (
+        	CASE 
+        		WHEN (IMPORTE_PAGO - IFNULL(SUMA_IMPORTE,0)) = 0 THEN 1
+    			WHEN (IMPORTE_PAGO - IFNULL(SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+    		ELSE 0 
+    		END);
+
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_FILE_TEST INSERTADOS: ' ||::ROWCOUNT, v_log_count, v_idproceso, 'info');			
+		---------------------------------------------------------------------------------------------------
+		TEMP_FINAL_PAGOS_BASES_101_03_RT_DIF =
+			SELECT T.PERIODSEQ,T.POS_PRIN,T.TIPO_DOCUMENTO,T.DEPOSITSEQ,T.EARNINGCODEID,T.EARNINGGROUPID,T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0) AS DIF,
+					T.ORDERID,T.LINENUMBER,T.SUBLINENUMBER,T.EVENTTYPEID, T.COMPENSATIONDATE,
+				ROW_NUMBER() OVER(
+                      		PARTITION BY T.PERIODSEQ,T.POS_PRIN,T.TIPO_DOCUMENTO,T.DEPOSITSEQ,T.EARNINGCODEID,T.EARNINGGROUPID
+                      		--ORDER BY T.ORDERID
+                      ) AS RN_TRX
+			FROM :TEMP_FINAL_PAGOS_BASES_101_03_RT T
+			WHERE 1 = (CASE 
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 0
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+					ELSE 0 
+				END)
+		;
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_FINAL_PAGOS_BASES_101_03_RT_DIF: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+		UPDATE F
+    	SET F.IMPORTE = F.IMPORTE + T.DIF
+    	FROM EXT.FINAL_REPEXT_FILE_TEST F
+    	INNER JOIN :TEMP_FINAL_PAGOS_BASES_101_03_RT_DIF T  ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+		AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID
+		AND F.ORDERID = T.ORDERID AND F.LINENUMBER = T.LINENUMBER AND F.SUBLINENUMBER = T.SUBLINENUMBER AND F.EVENTTYPEID = T.EVENTTYPEID AND F.COMPENSATIONDATE = T.COMPENSATIONDATE
+		AND T.RN_TRX = 1
+		;
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_FILE_TEST IMPORTE_DIF: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+
+
+		
+		
+		---------------------------------------------------------------------------------------------------
+		-- 101-03_RG	
+		---------------------------------------------------------------------------------------------------
+		--PAGOS
+		TEMP_PAGOS_DIRECTOS_101_03_RG = SELECT *
+    		FROM :TEMP_PAGOS_DIRECTOS
+    		WHERE SUBSTRING(EARNINGGROUPID,7,5) = '03-RG'
+    		AND EARNINGCODEID = '101';
+    		
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_PAGOS_DIRECTOS_101_03_RG: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+		--BASES
+		IF i_tipo_reparto = 'CIERRE' THEN
+			TEMP_BASES_101_03_RG = SELECT * 
+	    		FROM EXT.FINAL_BASES_REPARTO_POLIZA_FILE B
+	    		WHERE PERIODSEQ = i_periodSeq
+	    		-- EARNINGGROUPID = '03-RG'
+	    		AND PRODUCTID LIKE '03%' AND PRODUCTID NOT LIKE '032%'
+	    		-- EARNINGCODEID = '101'
+	    		AND (EVENTTYPEID IN ('71','65','66','72','42')
+	    			   OR (EVENTTYPEID = '43' AND SALESTRANSACTIONSEQ IN (
+	    		        SELECT T.SALESTRANSACTIONSEQ FROM EXT.TEMP_REPEXT_TXN_FILE T
+	    		        WHERE T.SALESTRANSACTIONSEQ = B.SALESTRANSACTIONSEQ
+	    		        AND T.FECHA_EFECTO > ADD_MONTHS(T.FECHA_VTO_RECIBO,-12)
+	    		    )));
+	    	CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_BASES_101_03_RG: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+	    ELSE
+	    	TEMP_BASES_101_03_RG = SELECT * 
+    			FROM EXT.FINAL_BASES_REPARTO_POLIZA_FILE_NUEVA_BASE_REPARTO B
+    			WHERE PERIODSEQ = v_periodSeqAnterior
+    			-- EARNINGGROUPID = '03-RG'
+    			AND PRODUCTID LIKE '03%' AND PRODUCTID NOT LIKE '032%'
+    			-- EARNINGCODEID = '101'
+    			AND (EVENTTYPEID IN ('71','65','66','72','42')
+    				   OR (EVENTTYPEID = '43' AND SALESTRANSACTIONSEQ IN (
+    			        SELECT T.SALESTRANSACTIONSEQ FROM EXT.TEMP_REPEXT_TXN_FILE T
+    			        WHERE T.SALESTRANSACTIONSEQ = B.SALESTRANSACTIONSEQ
+    			        AND T.FECHA_EFECTO > ADD_MONTHS(T.FECHA_VTO_RECIBO,-12)
+    			    )));
+    		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_BASES_101_03_RG (BALANCE): ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+    	END IF;
+    	
+    	
+   -- 	--BASES_TOTAL_IMPORTE
+   -- 	BASES_TOTAL_IMPORTE_101_03_RG = 
+			-- SELECT POSITIONSEQ, SUM(IMPORTE_COMISION) AS SUMA_IMPORTE
+			-- FROM :TEMP_BASES_101_03_RG
+			-- WHERE IMPORTE_COMISION <> 0
+			-- GROUP BY POSITIONSEQ;
+			
+    	--FINAL
+    	TEMP_FINAL_PAGOS_BASES_101_03_RG = SELECT P.PARTICIPANTSEQ,
+                                P.POSITIONSEQ,
+                                P.PERIODSEQ,
+                                :v_periodName AS PERIODO,
+                                P.POS_CALLIDUS POSITIONNAME,
+                                P.POS_PRIN,
+                                P.NIF,
+                                P.MANAGER_POS_PRIN,
+                                ORDERID,
+                                LINENUMBER,
+                                SUBLINENUMBER,
+                                EVENTTYPEID,
+                                PRODUCTID,
+                                CODIGO_POLIZA,
+                                COMPENSATIONDATE,
+                                ESTADO,
+                                P.PROGRAMA,
+                                P.TIPO_PAGO,
+                                P.DEPOSITO,
+                                P.DEPOSITSEQ,
+                                P.IMPORTE IMPORTE_PAGO,
+                                P.EARNINGCODEID,
+                                P.EARNINGGROUPID,
+                                P.TIPO_DOCUMENTO,
+                                P.TIPO_AGENTE,
+                                B.IMPORTE_COMISION AS IMPORTE,
+                                (SELECT SUM(IMPORTE_COMISION)
+                                	FROM :TEMP_BASES_101_03_RG S
+                                	WHERE S.POSITIONSEQ = B.POSITIONSEQ
+                                	AND ((RIGHT(P.EARNINGGROUPID,3) = 'AUT' AND S.AUTOLIQUIDA = 1)
+											OR
+										 (RIGHT(P.EARNINGGROUPID,3) <> 'AUT' AND IFNULL(S.AUTOLIQUIDA,0) = 0))
+                                ) AS SUMA_IMPORTE,
+                                NULL AS TIPO_REPARTO,
+                                0 AS NUM_TRAMO,
+                                NULL AS REPARTO_TIPO_BASE,
+                                NULL AS REPARTO_PORCENTAJE,
+                                POLIZA_FISICA,
+                                POLIZA_CORREGIDA,
+                                PRIMA_CORREGIDA,
+                                PRIMA_NETA,
+                                PRIMA_NETA_ANUAL,
+                                PRIMA_COMIS_S4 PRIMA_COMIS,
+                                NULL AS COEF_TIPO_BASE,
+                                NULL AS COEF_CORRECTOR,
+                                COD_AGENTE,
+                                P.TIPO_LIQ
+    					FROM :TEMP_PAGOS_DIRECTOS_101_03_RG P
+    					INNER JOIN :TEMP_BASES_101_03_RG B ON P.POSITIONSEQ = B.POSITIONSEQ
+    				--	INNER JOIN :BASES_TOTAL_IMPORTE_101_03_RG BT ON BT.POSITIONSEQ = B.POSITIONSEQ
+    					WHERE 
+    					-- TIPO CONCEPTO: IMPORTE_COMISION
+    					B.IMPORTE_COMISION <> 0
+    					AND NOT EXISTS (
+    					    SELECT 1 
+    					    FROM EXT.FINAL_REPEXT_FILE_TEST X 
+    					    WHERE X.POS_PRIN       = P.POS_PRIN
+    					      AND X.PERIODSEQ      = P.PERIODSEQ
+    					      AND X.EARNINGCODEID  = P.EARNINGCODEID
+    					      AND X.EARNINGGROUPID = P.EARNINGGROUPID
+    					      AND X.TIPO_DOCUMENTO = P.TIPO_DOCUMENTO
+    					      AND X.ORDERID        = B.ORDERID
+    					      AND X.LINENUMBER     = B.LINENUMBER
+    					      AND X.SUBLINENUMBER  = B.SUBLINENUMBER
+    					      AND X.EVENTTYPEID    = B.EVENTTYPEID
+    					)
+    					AND (
+    	    				(RIGHT(P.EARNINGGROUPID,3) = 'AUT' AND B.AUTOLIQUIDA = 1)
+	        				OR
+	        				(RIGHT(P.EARNINGGROUPID,3) <> 'AUT' AND IFNULL(B.AUTOLIQUIDA,0) = 0)
+    					);
+    	CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_FINAL_PAGOS_BASES_101_03_RG ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+    	
+    	--LIQUIDACIÓN COMPLEMENTARIA
+    	IF v_num_post > 1 AND i_tipo_reparto = 'CIERRE' THEN
+    		TEMP_PAGOS_DIRECTOS_101_03_RG_LC = SELECT SUM(IMPORTE) SUMA_PAGOS,PERIODSEQ,POS_PRIN,EARNINGGROUPID,EARNINGCODEID,DEPOSITO 
+    			FROM :TEMP_FINAL_PAGOS_BASES_101_03_RG 
+    			WHERE TIPO_LIQ IN ('CIERRE','LIQ')
+    			GROUP BY PERIODSEQ,POS_PRIN,EARNINGGROUPID,EARNINGCODEID,DEPOSITO;
+    
+		INSERT INTO EXT.FINAL_REPEXT_FILE_TEST("TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+            ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+            ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+            ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ")
+        SELECT "TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+            ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE"*(-1),"TIPO_AGENTE","TIPO_DOCUMENTO",TF."EARNINGGROUPID"
+            ,TF."EARNINGCODEID",TF.SUMA_IMPORTE,"DEPOSITSEQ",TF."DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+            ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF",TF."POS_PRIN","POSITIONNAME","PERIODO",TF."PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ"
+        FROM :TEMP_FINAL_PAGOS_BASES_101_03_RG TF 
+        INNER JOIN :TEMP_PAGOS_DIRECTOS_101_03_RG_LC TLC ON TF.PERIODSEQ = TLC.PERIODSEQ AND TF.POS_PRIN = TLC.POS_PRIN 
+        	AND TF.EARNINGGROUPID = TLC.EARNINGGROUPID AND TF.EARNINGCODEID = TLC. EARNINGCODEID AND TF.DEPOSITO = TLC.DEPOSITO
+        	AND 1 = (CASE WHEN SUMA_PAGOS <> SUMA_IMPORTE THEN 1 END); 
+    	END IF;
+    	-- FIN LIQUIDACIÓN COMPLEMENTARIA
+     
+    	UPDATE F
+    	SET ESTADO_REPARTO = CASE 
+    		WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 2
+			WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 3
+			ELSE 4 
+		END
+		FROM EXT.FINAL_REPEXT_PAGOS_FILE_TEST F
+		INNER JOIN :TEMP_FINAL_PAGOS_BASES_101_03_RG T ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+		AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID;
+		
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_PAGOS_FILE_TEST ESTADOS ACTUALIZADOS ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+		
+		UPDATE F
+            SET ESTADO_REPARTO = CASE 
+    				WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 2
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 3
+					ELSE 4 
+				END --REPARTO CORRECTO
+			FROM :TEMP_REPEXT_PAGOS_REPARTO_FILE F
+			INNER JOIN :TEMP_FINAL_PAGOS_BASES_101_03_RG T ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+			AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+	--		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID
+			WHERE 1 = (CASE 
+    				WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 1
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+					ELSE 0 
+				END)
+			;
+        CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_REPEXT_PAGOS_REPARTO_FILE ESTADOS ACTUALIZADOS: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');   
+	
+		INSERT INTO EXT.FINAL_REPEXT_FILE_TEST("TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+            ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+            ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+            ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ")
+        SELECT "TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+            ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+            ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+            ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ"
+        FROM :TEMP_FINAL_PAGOS_BASES_101_03_RG
+        WHERE 1 = (
+        	CASE 
+        		WHEN (IMPORTE_PAGO - IFNULL(SUMA_IMPORTE,0)) = 0 THEN 1
+    			WHEN (IMPORTE_PAGO - IFNULL(SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+    		ELSE 0 
+    		END);
+
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_FILE_TEST INSERTADOS: ' ||::ROWCOUNT, v_log_count, v_idproceso, 'info');	
+		-----------------------------------------------------------------------------------------------------------
+		TEMP_FINAL_PAGOS_BASES_101_03_RG_DIF =
+			SELECT T.PERIODSEQ,T.POS_PRIN,T.TIPO_DOCUMENTO,T.DEPOSITSEQ,T.EARNINGCODEID,T.EARNINGGROUPID,T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0) AS DIF,
+				T.ORDERID,T.LINENUMBER,T.SUBLINENUMBER,T.EVENTTYPEID, T.COMPENSATIONDATE,
+				ROW_NUMBER() OVER(
+                      		PARTITION BY T.PERIODSEQ,T.POS_PRIN,T.TIPO_DOCUMENTO,T.DEPOSITSEQ,T.EARNINGCODEID,T.EARNINGGROUPID
+                      		--ORDER BY T.ORDERID
+                      ) AS RN_TRX
+			FROM :TEMP_FINAL_PAGOS_BASES_101_03_RG T
+			WHERE 1 = (CASE 
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 0
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+					ELSE 0 
+				END)
+		;
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_FINAL_PAGOS_BASES_101_03_RG_DIF: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+		UPDATE F
+    	SET F.IMPORTE = F.IMPORTE + T.DIF
+    	FROM EXT.FINAL_REPEXT_FILE_TEST F
+    	INNER JOIN :TEMP_FINAL_PAGOS_BASES_101_03_RG_DIF T  ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+		AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID
+		AND F.ORDERID = T.ORDERID AND F.LINENUMBER = T.LINENUMBER AND F.SUBLINENUMBER = T.SUBLINENUMBER AND F.EVENTTYPEID = T.EVENTTYPEID AND F.COMPENSATIONDATE = T.COMPENSATIONDATE
+		AND T.RN_TRX = 1
+		;
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_FILE_TEST IMPORTE_DIF: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+	
+
+
+	---------------------------------------------------------------------------------------------------
+		-- 102-01_RT	
+		---------------------------------------------------------------------------------------------------
+		--PAGOS
+		TEMP_PAGOS_DIRECTOS_102_01_RT = SELECT *
+    		FROM :TEMP_PAGOS_DIRECTOS
+    		WHERE SUBSTRING(EARNINGGROUPID,7,5) = '01-RT'
+    		AND EARNINGCODEID = '102';
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_PAGOS_DIRECTOS_102_01_RT: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+		--BASES
+		IF i_tipo_reparto = 'CIERRE' THEN
+			TEMP_BASES_102_01_RT = SELECT * 
+	    		FROM EXT.FINAL_BASES_REPARTO_POLIZA_FILE B
+	    		WHERE PERIODSEQ = i_periodSeq
+	    		-- EARNINGGROUPID = '01-RT'
+	    		AND PRODUCTID LIKE '012%'
+	    		-- EARNINGCODEID = '101'
+	    		AND (EVENTTYPEID IN ('81','20')
+	    			   OR (EVENTTYPEID = '43' AND SALESTRANSACTIONSEQ IN (
+	    		        SELECT T.SALESTRANSACTIONSEQ FROM EXT.TEMP_REPEXT_TXN_FILE T
+	    		        WHERE T.SALESTRANSACTIONSEQ = B.SALESTRANSACTIONSEQ
+	    		        AND T.FECHA_EFECTO > ADD_MONTHS(T.FECHA_VTO_RECIBO,-12)
+	    		    )));
+	    	CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_BASES_102_01_RT: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+	    ELSE
+	    	TEMP_BASES_102_01_RT = SELECT * 
+	    		FROM EXT.FINAL_BASES_REPARTO_POLIZA_FILE_NUEVA_BASE_REPARTO B
+	    		WHERE PERIODSEQ = v_periodSeqAnterior
+	    		-- EARNINGGROUPID = '01-RT'
+	    		AND PRODUCTID LIKE '012%'
+	    		-- EARNINGCODEID = '101'
+	    		AND (EVENTTYPEID IN ('81','20')
+	    			   OR (EVENTTYPEID = '43' AND SALESTRANSACTIONSEQ IN (
+	    		        SELECT T.SALESTRANSACTIONSEQ FROM EXT.TEMP_REPEXT_TXN_FILE T
+	    		        WHERE T.SALESTRANSACTIONSEQ = B.SALESTRANSACTIONSEQ
+	    		        AND T.FECHA_EFECTO > ADD_MONTHS(T.FECHA_VTO_RECIBO,-12)
+	    		    )));
+	    	CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_BASES_102_01_RT (BALANCE): ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+	    END IF;
+    	
+    	--BASES_TOTAL_IMPORTE
+   -- 	BASES_TOTAL_IMPORTE_102_01_RT = 
+			-- SELECT POSITIONSEQ, SUM(IMPORTE_COMISION) AS SUMA_IMPORTE
+			-- FROM :TEMP_BASES_102_01_RT
+			-- WHERE IMPORTE_COMISION <> 0
+			-- GROUP BY POSITIONSEQ; 
+			
+    	--FINAL
+    	TEMP_FINAL_PAGOS_BASES_102_01_RT = SELECT P.PARTICIPANTSEQ,
+                                P.POSITIONSEQ,
+                                P.PERIODSEQ,
+                                :v_periodName AS PERIODO,
+                                P.POS_CALLIDUS POSITIONNAME,
+                                P.POS_PRIN,
+                                P.NIF,
+                                P.MANAGER_POS_PRIN,
+                                ORDERID,
+                                LINENUMBER,
+                                SUBLINENUMBER,
+                                EVENTTYPEID,
+                                PRODUCTID,
+                                CODIGO_POLIZA,
+                                COMPENSATIONDATE,
+                                ESTADO,
+                                P.PROGRAMA,
+                                P.TIPO_PAGO,
+                                P.DEPOSITO,
+                                P.DEPOSITSEQ,
+                                P.IMPORTE IMPORTE_PAGO,
+                                P.EARNINGCODEID,
+                                P.EARNINGGROUPID,
+                                P.TIPO_DOCUMENTO,
+                                P.TIPO_AGENTE,
+                                B.IMPORTE_COMISION AS IMPORTE,
+                                (SELECT SUM(IMPORTE_COMISION)
+                                	FROM :TEMP_BASES_102_01_RT S
+                                	WHERE S.POSITIONSEQ = B.POSITIONSEQ
+                                	AND ((RIGHT(P.EARNINGGROUPID,3) = 'AUT' AND S.AUTOLIQUIDA = 1)
+											OR
+										 (RIGHT(P.EARNINGGROUPID,3) <> 'AUT' AND IFNULL(S.AUTOLIQUIDA,0) = 0))
+                                ) AS SUMA_IMPORTE,
+                                NULL AS TIPO_REPARTO,
+                                0 AS NUM_TRAMO,
+                                NULL AS REPARTO_TIPO_BASE,
+                                NULL AS REPARTO_PORCENTAJE,
+                                POLIZA_FISICA,
+                                POLIZA_CORREGIDA,
+                                PRIMA_CORREGIDA,
+                                PRIMA_NETA,
+                                PRIMA_NETA_ANUAL,
+                                PRIMA_COMIS_S4 PRIMA_COMIS,
+                                NULL AS COEF_TIPO_BASE,
+                                NULL AS COEF_CORRECTOR,
+                                COD_AGENTE,
+                                P.TIPO_LIQ
+    					FROM :TEMP_PAGOS_DIRECTOS_102_01_RT P
+    					INNER JOIN :TEMP_BASES_102_01_RT B ON P.POSITIONSEQ = B.POSITIONSEQ
+    					--INNER JOIN :BASES_TOTAL_IMPORTE_102_01_RT BT ON BT.POSITIONSEQ = B.POSITIONSEQ
+    					WHERE 
+    					-- TIPO CONCEPTO: IMPORTE_COMISION
+    					B.IMPORTE_COMISION <> 0
+    					AND NOT EXISTS (
+    					    SELECT 1 
+    					    FROM EXT.FINAL_REPEXT_FILE_TEST X 
+    					    WHERE X.POS_PRIN       = P.POS_PRIN
+    					      AND X.PERIODSEQ      = P.PERIODSEQ
+    					      AND X.EARNINGCODEID  = P.EARNINGCODEID
+    					      AND X.EARNINGGROUPID = P.EARNINGGROUPID
+    					      AND X.TIPO_DOCUMENTO = P.TIPO_DOCUMENTO
+    					      AND X.ORDERID        = B.ORDERID
+    					      AND X.LINENUMBER     = B.LINENUMBER
+    					      AND X.SUBLINENUMBER  = B.SUBLINENUMBER
+    					      AND X.EVENTTYPEID    = B.EVENTTYPEID
+    					)
+    					AND (
+    	    				(RIGHT(P.EARNINGGROUPID,3) = 'AUT' AND B.AUTOLIQUIDA = 1)
+	        				OR
+	        				(RIGHT(P.EARNINGGROUPID,3) <> 'AUT' AND IFNULL(B.AUTOLIQUIDA,0) = 0)
+    					);
+    	CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_FINAL_PAGOS_BASES_102_01_RT: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+    	
+    	--LIQUIDACIÓN COMPLEMENTARIA
+    	IF v_num_post > 1 AND i_tipo_reparto = 'CIERRE' THEN
+    		TEMP_PAGOS_DIRECTOS_102_01_RT_LC = SELECT SUM(IMPORTE) SUMA_PAGOS,PERIODSEQ,POS_PRIN,EARNINGGROUPID,EARNINGCODEID,DEPOSITO 
+    			FROM :TEMP_FINAL_PAGOS_BASES_102_01_RT 
+    			WHERE TIPO_LIQ IN ('CIERRE','LIQ')
+    			GROUP BY PERIODSEQ,POS_PRIN,EARNINGGROUPID,EARNINGCODEID,DEPOSITO;
+    
+			INSERT INTO EXT.FINAL_REPEXT_FILE_TEST("TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+        	    ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+        	    ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+        	    ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ")
+        	SELECT "TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+        	    ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE"*(-1),"TIPO_AGENTE","TIPO_DOCUMENTO",TF."EARNINGGROUPID"
+        	    ,TF."EARNINGCODEID",TF.SUMA_IMPORTE,"DEPOSITSEQ",TF."DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+        	    ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF",TF."POS_PRIN","POSITIONNAME","PERIODO",TF."PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ"
+        	FROM :TEMP_FINAL_PAGOS_BASES_102_01_RT TF 
+        	INNER JOIN :TEMP_PAGOS_DIRECTOS_102_01_RT_LC TLC ON TF.PERIODSEQ = TLC.PERIODSEQ AND TF.POS_PRIN = TLC.POS_PRIN 
+        		AND TF.EARNINGGROUPID = TLC.EARNINGGROUPID AND TF.EARNINGCODEID = TLC. EARNINGCODEID AND TF.DEPOSITO = TLC.DEPOSITO
+        		AND 1 = (CASE WHEN SUMA_PAGOS <> SUMA_IMPORTE THEN 1 END); 
+    	END IF;
+    	-- FIN LIQUIDACIÓN COMPLEMENTARIA
+    	
+    	UPDATE F
+    	SET ESTADO_REPARTO = CASE 
+    		WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 2
+			WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 3
+			ELSE 4 
+		END
+		FROM EXT.FINAL_REPEXT_PAGOS_FILE_TEST F
+		INNER JOIN :TEMP_FINAL_PAGOS_BASES_102_01_RT T ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+		AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID;
+		
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_PAGOS_FILE_TEST ESTADOS ACTUALIZADOS: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+		
+		UPDATE F
+            SET ESTADO_REPARTO = CASE 
+    				WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 2
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 3
+					ELSE 4 
+				END --REPARTO CORRECTO
+			FROM :TEMP_REPEXT_PAGOS_REPARTO_FILE F
+			INNER JOIN :TEMP_FINAL_PAGOS_BASES_102_01_RT T ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+			AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+	--		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID
+			WHERE 1 = (CASE 
+    				WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 1
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+					ELSE 0 
+				END)
+			;
+        CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_REPEXT_PAGOS_REPARTO_FILE ESTADOS ACTUALIZADOS: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');   
+        
+        INSERT INTO EXT.FINAL_REPEXT_FILE_TEST("TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+            ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+            ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+            ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ")
+        SELECT "TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+            ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+            ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+            ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ"
+        FROM :TEMP_FINAL_PAGOS_BASES_102_01_RT
+        WHERE 1 = (
+        	CASE 
+        		WHEN (IMPORTE_PAGO - IFNULL(SUMA_IMPORTE,0)) = 0 THEN 1
+    			WHEN (IMPORTE_PAGO - IFNULL(SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+    		ELSE 0 
+    		END);
+
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_FILE_TEST INSERTADOS: ' ||::ROWCOUNT, v_log_count, v_idproceso, 'info');	
+		---------------------------------------------------------------------------------------------------
+		TEMP_FINAL_PAGOS_BASES_102_01_RT_DIF =
+			SELECT T.PERIODSEQ,T.POS_PRIN,T.TIPO_DOCUMENTO,T.DEPOSITSEQ,T.EARNINGCODEID,T.EARNINGGROUPID,T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0) AS DIF,
+				T.ORDERID,T.LINENUMBER,T.SUBLINENUMBER,T.EVENTTYPEID, T.COMPENSATIONDATE,
+				ROW_NUMBER() OVER(
+                      		PARTITION BY T.PERIODSEQ,T.POS_PRIN,T.TIPO_DOCUMENTO,T.DEPOSITSEQ,T.EARNINGCODEID,T.EARNINGGROUPID
+                      		--ORDER BY T.ORDERID
+                      ) AS RN_TRX
+			FROM :TEMP_FINAL_PAGOS_BASES_102_01_RT T
+			WHERE 1 = (CASE 
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 0
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+					ELSE 0 
+				END)
+		;
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_FINAL_PAGOS_BASES_102_01_RT_DIF: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+		UPDATE F
+    	SET F.IMPORTE = F.IMPORTE + T.DIF
+    	FROM EXT.FINAL_REPEXT_FILE_TEST F
+    	INNER JOIN :TEMP_FINAL_PAGOS_BASES_102_01_RT_DIF T  ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+		AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID
+		AND F.ORDERID = T.ORDERID AND F.LINENUMBER = T.LINENUMBER AND F.SUBLINENUMBER = T.SUBLINENUMBER AND F.EVENTTYPEID = T.EVENTTYPEID AND F.COMPENSATIONDATE = T.COMPENSATIONDATE
+		AND T.RN_TRX = 1
+		;
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_FILE_TEST IMPORTE_DIF: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+		
+		
+		
+		---------------------------------------------------------------------------------------------------
+		-- 102-01_RG	
+		---------------------------------------------------------------------------------------------------
+		--PAGOS
+		TEMP_PAGOS_DIRECTOS_102_01_RG = SELECT *
+    		FROM :TEMP_PAGOS_DIRECTOS
+    		WHERE SUBSTRING(EARNINGGROUPID,7,5) = '01-RG'
+    		AND EARNINGCODEID = '102';
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_PAGOS_DIRECTOS_102_01_RG: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+		--BASES
+		IF i_tipo_reparto = 'CIERRE' THEN
+			TEMP_BASES_102_01_RG = SELECT * 
+	    		FROM EXT.FINAL_BASES_REPARTO_POLIZA_FILE B
+	    		WHERE PERIODSEQ = i_periodSeq
+	    		-- EARNINGGROUPID = '01-RG'
+	    		AND PRODUCTID LIKE '01%' AND PRODUCTID NOT LIKE '012%'
+	    		-- EARNINGCODEID = '101'
+	    		AND (EVENTTYPEID IN ('81','20')
+	    			   OR (EVENTTYPEID = '43' AND SALESTRANSACTIONSEQ IN (
+	    		        SELECT T.SALESTRANSACTIONSEQ FROM EXT.TEMP_REPEXT_TXN_FILE T
+	    		        WHERE T.SALESTRANSACTIONSEQ = B.SALESTRANSACTIONSEQ
+	    		        AND T.FECHA_EFECTO > ADD_MONTHS(T.FECHA_VTO_RECIBO,-12)
+	    		    )));
+	    		    
+	    	CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_BASES_102_01_RG: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+	    ELSE 
+	    	TEMP_BASES_102_01_RG = SELECT * 
+    		FROM EXT.FINAL_BASES_REPARTO_POLIZA_FILE_NUEVA_BASE_REPARTO B
+    		WHERE PERIODSEQ = v_periodSeqAnterior
+    		-- EARNINGGROUPID = '01-RG'
+    		AND PRODUCTID LIKE '01%' AND PRODUCTID NOT LIKE '012%'
+    		-- EARNINGCODEID = '101'
+    		AND (EVENTTYPEID IN ('81','20')
+    			   OR (EVENTTYPEID = '43' AND SALESTRANSACTIONSEQ IN (
+    		        SELECT T.SALESTRANSACTIONSEQ FROM EXT.TEMP_REPEXT_TXN_FILE T
+    		        WHERE T.SALESTRANSACTIONSEQ = B.SALESTRANSACTIONSEQ
+    		        AND T.FECHA_EFECTO > ADD_MONTHS(T.FECHA_VTO_RECIBO,-12)
+    		    )));
+    		    
+    		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_BASES_102_01_RG (BALANCE): ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+    	END IF;
+    	
+   -- 	--BASES_TOTAL_IMPORTE
+   -- 	BASES_TOTAL_IMPORTE_102_01_RG = 
+			-- SELECT POSITIONSEQ, SUM(IMPORTE_COMISION) AS SUMA_IMPORTE
+			-- FROM :TEMP_BASES_102_01_RG
+			-- WHERE IMPORTE_COMISION <> 0
+			-- GROUP BY POSITIONSEQ;
+			
+    	--FINAL
+    	TEMP_FINAL_PAGOS_BASES_102_01_RG = SELECT P.PARTICIPANTSEQ,
+                                P.POSITIONSEQ,
+                                P.PERIODSEQ,
+                                :v_periodName AS PERIODO,
+                                P.POS_CALLIDUS POSITIONNAME,
+                                P.POS_PRIN,
+                                P.NIF,
+                                P.MANAGER_POS_PRIN,
+                                ORDERID,
+                                LINENUMBER,
+                                SUBLINENUMBER,
+                                EVENTTYPEID,
+                                PRODUCTID,
+                                CODIGO_POLIZA,
+                                COMPENSATIONDATE,
+                                ESTADO,
+                                P.PROGRAMA,
+                                P.TIPO_PAGO,
+                                P.DEPOSITO,
+                                P.DEPOSITSEQ,
+                                P.IMPORTE IMPORTE_PAGO,
+                                P.EARNINGCODEID,
+                                P.EARNINGGROUPID,
+                                P.TIPO_DOCUMENTO,
+                                P.TIPO_AGENTE,
+                                B.IMPORTE_COMISION AS IMPORTE,
+                                (SELECT SUM(IMPORTE_COMISION)
+                                	FROM :TEMP_BASES_102_01_RG S
+                                	WHERE S.POSITIONSEQ = B.POSITIONSEQ
+                                	AND ((RIGHT(P.EARNINGGROUPID,3) = 'AUT' AND S.AUTOLIQUIDA = 1)
+											OR
+										 (RIGHT(P.EARNINGGROUPID,3) <> 'AUT' AND IFNULL(S.AUTOLIQUIDA,0) = 0))
+                                ) AS SUMA_IMPORTE,
+                                NULL AS TIPO_REPARTO,
+                                0 AS NUM_TRAMO,
+                                NULL AS REPARTO_TIPO_BASE,
+                                NULL AS REPARTO_PORCENTAJE,
+                                POLIZA_FISICA,
+                                POLIZA_CORREGIDA,
+                                PRIMA_CORREGIDA,
+                                PRIMA_NETA,
+                                PRIMA_NETA_ANUAL,
+                                PRIMA_COMIS_S4 PRIMA_COMIS,
+                                NULL AS COEF_TIPO_BASE,
+                                NULL AS COEF_CORRECTOR,
+                                COD_AGENTE,
+                                P.TIPO_LIQ
+    					FROM :TEMP_PAGOS_DIRECTOS_102_01_RG P
+    					INNER JOIN :TEMP_BASES_102_01_RG B ON P.POSITIONSEQ = B.POSITIONSEQ
+    				--	INNER JOIN :BASES_TOTAL_IMPORTE_102_01_RG BT ON BT.POSITIONSEQ = B.POSITIONSEQ
+    					WHERE 
+    					-- TIPO CONCEPTO: IMPORTE_COMISION
+    					B.IMPORTE_COMISION <> 0
+    					AND NOT EXISTS (
+    					    SELECT 1 
+    					    FROM EXT.FINAL_REPEXT_FILE_TEST X 
+    					    WHERE X.POS_PRIN       = P.POS_PRIN
+    					      AND X.PERIODSEQ      = P.PERIODSEQ
+    					      AND X.EARNINGCODEID  = P.EARNINGCODEID
+    					      AND X.EARNINGGROUPID = P.EARNINGGROUPID
+    					      AND X.TIPO_DOCUMENTO = P.TIPO_DOCUMENTO
+    					      AND X.ORDERID        = B.ORDERID
+    					      AND X.LINENUMBER     = B.LINENUMBER
+    					      AND X.SUBLINENUMBER  = B.SUBLINENUMBER
+    					      AND X.EVENTTYPEID    = B.EVENTTYPEID
+    					)
+    					AND (
+    	    				(RIGHT(P.EARNINGGROUPID,3) = 'AUT' AND B.AUTOLIQUIDA = 1)
+	        				OR
+	        				(RIGHT(P.EARNINGGROUPID,3) <> 'AUT' AND IFNULL(B.AUTOLIQUIDA,0) = 0)
+    					);
+    					
+    	CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_FINAL_PAGOS_BASES_102_01_RG: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+    	
+    	--LIQUIDACIÓN COMPLEMENTARIA
+		IF v_num_post > 1 AND i_tipo_reparto = 'CIERRE' THEN
+		
+			TEMP_PAGOS_DIRECTOS_102_01_RG_LC = SELECT SUM(IMPORTE) SUMA_PAGOS,PERIODSEQ,POS_PRIN,EARNINGGROUPID,EARNINGCODEID,DEPOSITO 
+				FROM :TEMP_FINAL_PAGOS_BASES_102_01_RG 
+				WHERE TIPO_LIQ IN ('CIERRE','LIQ')
+				GROUP BY PERIODSEQ,POS_PRIN,EARNINGGROUPID,EARNINGCODEID,DEPOSITO;
+		
+			INSERT INTO EXT.FINAL_REPEXT_FILE_TEST("TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+		        ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+		        ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+		        ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ")
+		    SELECT "TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+		        ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE"*(-1),"TIPO_AGENTE","TIPO_DOCUMENTO",TF."EARNINGGROUPID"
+		        ,TF."EARNINGCODEID",TF.SUMA_IMPORTE,"DEPOSITSEQ",TF."DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+		        ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF",TF."POS_PRIN","POSITIONNAME","PERIODO",TF."PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ"
+		    FROM :TEMP_FINAL_PAGOS_BASES_102_01_RG TF 
+		    	INNER JOIN :TEMP_PAGOS_DIRECTOS_102_01_RG_LC TLC ON TF.PERIODSEQ = TLC.PERIODSEQ AND TF.POS_PRIN = TLC.POS_PRIN 
+		    	AND TF.EARNINGGROUPID = TLC.EARNINGGROUPID AND TF.EARNINGCODEID = TLC. EARNINGCODEID AND TF.DEPOSITO = TLC.DEPOSITO
+		    	AND 1 = (CASE WHEN SUMA_PAGOS <> SUMA_IMPORTE THEN 1 END); 
+		 END IF;
+    	-- FIN LIQUIDACIÓN COMPLEMENTARIA
+    	
+    	UPDATE F
+    	SET ESTADO_REPARTO = CASE 
+    		WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 2
+			WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 3
+			ELSE 4 
+		END
+		FROM EXT.FINAL_REPEXT_PAGOS_FILE_TEST F
+		INNER JOIN :TEMP_FINAL_PAGOS_BASES_102_01_RG T ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+		AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID;
+		
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_PAGOS_FILE_TEST ESTADOS ACTUALIZADOS: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+		
+		UPDATE F
+            SET ESTADO_REPARTO = CASE 
+    				WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 2
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 3
+					ELSE 4 
+				END --REPARTO CORRECTO
+			FROM :TEMP_REPEXT_PAGOS_REPARTO_FILE F
+			INNER JOIN :TEMP_FINAL_PAGOS_BASES_102_01_RG T ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+			AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+	--		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID
+			WHERE 1 = (CASE 
+    				WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 1
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+					ELSE 0 
+				END)
+			;
+        CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_REPEXT_PAGOS_REPARTO_FILE ESTADOS ACTUALIZADOS: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');   
+		
+		INSERT INTO EXT.FINAL_REPEXT_FILE_TEST("TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+            ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+            ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+            ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ")
+        SELECT "TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+            ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+            ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+            ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ"
+        FROM :TEMP_FINAL_PAGOS_BASES_102_01_RG
+        WHERE 1 = (
+        	CASE 
+        		WHEN (IMPORTE_PAGO - IFNULL(SUMA_IMPORTE,0)) = 0 THEN 1
+    			WHEN (IMPORTE_PAGO - IFNULL(SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+    		ELSE 0 
+    		END);
+		
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_FILE_TEST INSERTADOS: ' ||::ROWCOUNT, v_log_count, v_idproceso, 'info');	
+		---------------------------------------------------------------------------------------------------
+
+		TEMP_FINAL_PAGOS_BASES_102_01_RG_DIF =
+			SELECT T.PERIODSEQ,T.POS_PRIN,T.TIPO_DOCUMENTO,T.DEPOSITSEQ,T.EARNINGCODEID,T.EARNINGGROUPID,T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0) AS DIF,
+				T.ORDERID,T.LINENUMBER,T.SUBLINENUMBER,T.EVENTTYPEID, T.COMPENSATIONDATE,
+				ROW_NUMBER() OVER(
+                      		PARTITION BY T.PERIODSEQ,T.POS_PRIN,T.TIPO_DOCUMENTO,T.DEPOSITSEQ,T.EARNINGCODEID,T.EARNINGGROUPID
+                      		--ORDER BY T.ORDERID
+                      ) AS RN_TRX
+			FROM :TEMP_FINAL_PAGOS_BASES_102_01_RG T
+			WHERE 1 = (CASE 
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 0
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+					ELSE 0 
+				END)
+		;
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_FINAL_PAGOS_BASES_102_01_RG_DIF: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+		UPDATE F
+    	SET F.IMPORTE = F.IMPORTE + T.DIF
+    	FROM EXT.FINAL_REPEXT_FILE_TEST F
+    	INNER JOIN :TEMP_FINAL_PAGOS_BASES_102_01_RG_DIF T  ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+		AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID
+		AND F.ORDERID = T.ORDERID AND F.LINENUMBER = T.LINENUMBER AND F.SUBLINENUMBER = T.SUBLINENUMBER AND F.EVENTTYPEID = T.EVENTTYPEID AND F.COMPENSATIONDATE = T.COMPENSATIONDATE
+		AND T.RN_TRX = 1
+		;
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_FILE_TEST IMPORTE_DIF: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+		
+		
+		---------------------------------------------------------------------------------------------------
+		-- 102-03_RT	
+		---------------------------------------------------------------------------------------------------
+		--PAGOS
+		TEMP_PAGOS_DIRECTOS_102_03_RT = SELECT *
+    		FROM :TEMP_PAGOS_DIRECTOS
+    		WHERE SUBSTRING(EARNINGGROUPID,7,5) = '03-RT'
+    		AND EARNINGCODEID = '102';
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_PAGOS_DIRECTOS_102_03_RT: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+		--BASES
+		IF i_tipo_reparto = 'CIERRE' THEN
+			TEMP_BASES_102_03_RT = SELECT * 
+	    		FROM EXT.FINAL_BASES_REPARTO_POLIZA_FILE B
+	    		WHERE PERIODSEQ = i_periodSeq
+	    		-- EARNINGGROUPID = '01-RT'
+	    		AND PRODUCTID LIKE '032%'
+	    		-- EARNINGCODEID = '101'
+	    		AND (EVENTTYPEID IN ('81','20')
+	    			   OR (EVENTTYPEID = '43' AND SALESTRANSACTIONSEQ IN (
+	    		        SELECT T.SALESTRANSACTIONSEQ FROM EXT.TEMP_REPEXT_TXN_FILE T
+	    		        WHERE T.SALESTRANSACTIONSEQ = B.SALESTRANSACTIONSEQ
+	    		        AND T.FECHA_EFECTO > ADD_MONTHS(T.FECHA_VTO_RECIBO,-12)
+	    		    )));
+	    		    
+	    	CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_BASES_102_03_RT: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+	    ELSE
+	    	TEMP_BASES_102_03_RT = SELECT * 
+    		FROM EXT.FINAL_BASES_REPARTO_POLIZA_FILE_NUEVA_BASE_REPARTO B
+    		WHERE PERIODSEQ = v_periodSeqAnterior
+    		-- EARNINGGROUPID = '01-RT'
+    		AND PRODUCTID LIKE '032%'
+    		-- EARNINGCODEID = '101'
+    		AND (EVENTTYPEID IN ('81','20')
+    			   OR (EVENTTYPEID = '43' AND SALESTRANSACTIONSEQ IN (
+    		        SELECT T.SALESTRANSACTIONSEQ FROM EXT.TEMP_REPEXT_TXN_FILE T
+    		        WHERE T.SALESTRANSACTIONSEQ = B.SALESTRANSACTIONSEQ
+    		        AND T.FECHA_EFECTO > ADD_MONTHS(T.FECHA_VTO_RECIBO,-12)
+    		    )));
+    		    
+    		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_BASES_102_03_RT (BALANCE): ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+    	END IF;
+    	
+    	--BASES_TOTAL_IMPORTE
+   -- 	BASES_TOTAL_IMPORTE_102_03_RT = 
+			-- SELECT POSITIONSEQ, SUM(IMPORTE_COMISION) AS SUMA_IMPORTE
+			-- FROM :TEMP_BASES_102_03_RT
+			-- WHERE IMPORTE_COMISION <> 0
+			-- GROUP BY POSITIONSEQ; 
+			
+    	--FINAL
+    	TEMP_FINAL_PAGOS_BASES_102_03_RT = SELECT P.PARTICIPANTSEQ,
+                                P.POSITIONSEQ,
+                                P.PERIODSEQ,
+                                :v_periodName AS PERIODO,
+                                P.POS_CALLIDUS POSITIONNAME,
+                                P.POS_PRIN,
+                                P.NIF,
+                                P.MANAGER_POS_PRIN,
+                                ORDERID,
+                                LINENUMBER,
+                                SUBLINENUMBER,
+                                EVENTTYPEID,
+                                PRODUCTID,
+                                CODIGO_POLIZA,
+                                COMPENSATIONDATE,
+                                ESTADO,
+                                P.PROGRAMA,
+                                P.TIPO_PAGO,
+                                P.DEPOSITO,
+                                P.DEPOSITSEQ,
+                                P.IMPORTE IMPORTE_PAGO,
+                                P.EARNINGCODEID,
+                                P.EARNINGGROUPID,
+                                P.TIPO_DOCUMENTO,
+                                P.TIPO_AGENTE,
+                                B.IMPORTE_COMISION AS IMPORTE,
+                                (SELECT SUM(IMPORTE_COMISION)
+                                	FROM :TEMP_BASES_102_03_RT S
+                                	WHERE S.POSITIONSEQ = B.POSITIONSEQ
+                                	AND ((RIGHT(P.EARNINGGROUPID,3) = 'AUT' AND S.AUTOLIQUIDA = 1)
+											OR
+										 (RIGHT(P.EARNINGGROUPID,3) <> 'AUT' AND IFNULL(S.AUTOLIQUIDA,0) = 0))
+                                ) AS SUMA_IMPORTE,
+                                NULL AS TIPO_REPARTO,
+                                0 AS NUM_TRAMO,
+                                NULL AS REPARTO_TIPO_BASE,
+                                NULL AS REPARTO_PORCENTAJE,
+                                POLIZA_FISICA,
+                                POLIZA_CORREGIDA,
+                                PRIMA_CORREGIDA,
+                                PRIMA_NETA,
+                                PRIMA_NETA_ANUAL,
+                                PRIMA_COMIS_S4 PRIMA_COMIS,
+                                NULL AS COEF_TIPO_BASE,
+                                NULL AS COEF_CORRECTOR,
+                                COD_AGENTE,
+                                P.TIPO_LIQ
+    					FROM :TEMP_PAGOS_DIRECTOS_102_03_RT P
+    					INNER JOIN :TEMP_BASES_102_03_RT B ON P.POSITIONSEQ = B.POSITIONSEQ
+    				--	INNER JOIN :BASES_TOTAL_IMPORTE_102_03_RT BT ON BT.POSITIONSEQ = B.POSITIONSEQ
+    					WHERE 
+    					-- TIPO CONCEPTO: IMPORTE_COMISION
+    					B.IMPORTE_COMISION <> 0
+    					AND NOT EXISTS (
+    					    SELECT 1 
+    					    FROM EXT.FINAL_REPEXT_FILE_TEST X 
+    					    WHERE X.POS_PRIN       = P.POS_PRIN
+    					      AND X.PERIODSEQ      = P.PERIODSEQ
+    					      AND X.EARNINGCODEID  = P.EARNINGCODEID
+    					      AND X.EARNINGGROUPID = P.EARNINGGROUPID
+    					      AND X.TIPO_DOCUMENTO = P.TIPO_DOCUMENTO
+    					      AND X.ORDERID        = B.ORDERID
+    					      AND X.LINENUMBER     = B.LINENUMBER
+    					      AND X.SUBLINENUMBER  = B.SUBLINENUMBER
+    					      AND X.EVENTTYPEID    = B.EVENTTYPEID
+    					)
+    					AND (
+    	    				(RIGHT(P.EARNINGGROUPID,3) = 'AUT' AND B.AUTOLIQUIDA = 1)
+	        				OR
+	        				(RIGHT(P.EARNINGGROUPID,3) <> 'AUT' AND IFNULL(B.AUTOLIQUIDA,0) = 0)
+    					);
+    	CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_FINAL_PAGOS_BASES_102_03_RT: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+    	
+    	--LIQUIDACIÓN COMPLEMENTARIA
+		IF v_num_post > 1 AND i_tipo_reparto = 'CIERRE' THEN
+		
+			TEMP_PAGOS_DIRECTOS_102_03_RT_LC = SELECT SUM(IMPORTE) SUMA_PAGOS,PERIODSEQ,POS_PRIN,EARNINGGROUPID,EARNINGCODEID,DEPOSITO 
+				FROM :TEMP_FINAL_PAGOS_BASES_102_03_RT 
+				WHERE TIPO_LIQ IN ('CIERRE','LIQ')
+				GROUP BY PERIODSEQ,POS_PRIN,EARNINGGROUPID,EARNINGCODEID,DEPOSITO;
+		
+			INSERT INTO EXT.FINAL_REPEXT_FILE_TEST("TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+		        ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+		        ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+		        ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ")
+		    SELECT "TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+		        ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE"*(-1),"TIPO_AGENTE","TIPO_DOCUMENTO",TF."EARNINGGROUPID"
+		        ,TF."EARNINGCODEID",TF.SUMA_IMPORTE,"DEPOSITSEQ",TF."DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+		        ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF",TF."POS_PRIN","POSITIONNAME","PERIODO",TF."PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ"
+		    FROM :TEMP_FINAL_PAGOS_BASES_102_03_RT TF 
+		    	INNER JOIN :TEMP_PAGOS_DIRECTOS_102_03_RT_LC TLC ON TF.PERIODSEQ = TLC.PERIODSEQ AND TF.POS_PRIN = TLC.POS_PRIN 
+		    	AND TF.EARNINGGROUPID = TLC.EARNINGGROUPID AND TF.EARNINGCODEID = TLC. EARNINGCODEID AND TF.DEPOSITO = TLC.DEPOSITO
+		    	AND 1 = (CASE WHEN SUMA_PAGOS <> SUMA_IMPORTE THEN 1 END); 
+		 END IF;
+    	-- FIN LIQUIDACIÓN COMPLEMENTARIA
+    	
+    	UPDATE F
+    	SET ESTADO_REPARTO = CASE 
+    		WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 2
+			WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 3
+			ELSE 4 
+		END
+		FROM EXT.FINAL_REPEXT_PAGOS_FILE_TEST F
+		INNER JOIN :TEMP_FINAL_PAGOS_BASES_102_03_RT T ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+		AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID;
+		
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_PAGOS_FILE_TEST ESTADOS ACTUALIZADOS: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+		
+		UPDATE F
+            SET ESTADO_REPARTO = CASE 
+    				WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 2
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 3
+					ELSE 4 
+				END --REPARTO CORRECTO
+			FROM :TEMP_REPEXT_PAGOS_REPARTO_FILE F
+			INNER JOIN :TEMP_FINAL_PAGOS_BASES_102_03_RT T ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+			AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+	--		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID
+			WHERE 1 = (CASE 
+    				WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 1
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+					ELSE 0 
+				END)
+			;
+        CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_REPEXT_PAGOS_REPARTO_FILE ESTADOS ACTUALIZADOS: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');   
+		
+		
+		INSERT INTO EXT.FINAL_REPEXT_FILE_TEST("TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+            ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+            ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+            ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ")
+        SELECT "TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+            ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+            ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+            ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ"
+        FROM :TEMP_FINAL_PAGOS_BASES_102_03_RT
+        WHERE 1 = (
+        	CASE 
+        		WHEN (IMPORTE_PAGO - IFNULL(SUMA_IMPORTE,0)) = 0 THEN 1
+    			WHEN (IMPORTE_PAGO - IFNULL(SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+    		ELSE 0 
+    		END);
+
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_FILE_TEST INSERTADOS: ' ||::ROWCOUNT, v_log_count, v_idproceso, 'info');	
+		---------------------------------------------------------------------------------------------------
+
+		TEMP_FINAL_PAGOS_BASES_102_03_RT_DIF =
+			SELECT T.PERIODSEQ,T.POS_PRIN,T.TIPO_DOCUMENTO,T.DEPOSITSEQ,T.EARNINGCODEID,T.EARNINGGROUPID,T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0) AS DIF,
+				T.ORDERID,T.LINENUMBER,T.SUBLINENUMBER,T.EVENTTYPEID, T.COMPENSATIONDATE,
+				ROW_NUMBER() OVER(
+                      		PARTITION BY T.PERIODSEQ,T.POS_PRIN,T.TIPO_DOCUMENTO,T.DEPOSITSEQ,T.EARNINGCODEID,T.EARNINGGROUPID
+                      		--ORDER BY T.ORDERID
+                      ) AS RN_TRX
+			FROM :TEMP_FINAL_PAGOS_BASES_102_03_RT T
+			WHERE 1 = (CASE 
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 0
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+					ELSE 0 
+				END)
+		;
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_FINAL_PAGOS_BASES_102_03_RT_DIF: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+		UPDATE F
+    	SET F.IMPORTE = F.IMPORTE + T.DIF
+    	FROM EXT.FINAL_REPEXT_FILE_TEST F
+    	INNER JOIN :TEMP_FINAL_PAGOS_BASES_102_03_RT_DIF T  ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+		AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID
+		AND F.ORDERID = T.ORDERID AND F.LINENUMBER = T.LINENUMBER AND F.SUBLINENUMBER = T.SUBLINENUMBER AND F.EVENTTYPEID = T.EVENTTYPEID AND F.COMPENSATIONDATE = T.COMPENSATIONDATE
+		AND T.RN_TRX = 1
+		;
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_FILE_TEST IMPORTE_DIF: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+
+		
+		
+		---------------------------------------------------------------------------------------------------
+		-- 102-03_RG	
+		---------------------------------------------------------------------------------------------------
+		--PAGOS
+		TEMP_PAGOS_DIRECTOS_102_03_RG = SELECT *
+    		FROM :TEMP_PAGOS_DIRECTOS
+    		WHERE SUBSTRING(EARNINGGROUPID,7,5) = '03-RG'
+    		AND EARNINGCODEID = '102';
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_PAGOS_DIRECTOS_102_03_RG: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+		--BASES
+		IF i_tipo_reparto = 'CIERRE' THEN
+			TEMP_BASES_102_03_RG = SELECT * 
+	    		FROM EXT.FINAL_BASES_REPARTO_POLIZA_FILE B
+	    		WHERE PERIODSEQ = i_periodSeq
+	    		-- EARNINGGROUPID = '03-RG'
+	    		AND PRODUCTID LIKE '03%' AND PRODUCTID NOT LIKE '032%'
+	    		-- EARNINGCODEID = '101'
+	    		AND (EVENTTYPEID IN ('81','20')
+	    			   OR (EVENTTYPEID = '43' AND SALESTRANSACTIONSEQ IN (
+	    		        SELECT T.SALESTRANSACTIONSEQ FROM EXT.TEMP_REPEXT_TXN_FILE T
+	    		        WHERE T.SALESTRANSACTIONSEQ = B.SALESTRANSACTIONSEQ
+	    		        AND T.FECHA_EFECTO > ADD_MONTHS(T.FECHA_VTO_RECIBO,-12)
+	    		    )));
+	    		    
+	    	CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_BASES_102_03_RG: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+	    ELSE
+	    	TEMP_BASES_102_03_RG = SELECT * 
+    		FROM EXT.FINAL_BASES_REPARTO_POLIZA_FILE_NUEVA_BASE_REPARTO B
+    		WHERE PERIODSEQ = v_periodSeqAnterior
+    		-- EARNINGGROUPID = '03-RG'
+    		AND PRODUCTID LIKE '03%' AND PRODUCTID NOT LIKE '032%'
+    		-- EARNINGCODEID = '101'
+    		AND (EVENTTYPEID IN ('81','20')
+    			   OR (EVENTTYPEID = '43' AND SALESTRANSACTIONSEQ IN (
+    		        SELECT T.SALESTRANSACTIONSEQ FROM EXT.TEMP_REPEXT_TXN_FILE T
+    		        WHERE T.SALESTRANSACTIONSEQ = B.SALESTRANSACTIONSEQ
+    		        AND T.FECHA_EFECTO > ADD_MONTHS(T.FECHA_VTO_RECIBO,-12)
+    		    )));
+    		    
+    		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_BASES_102_03_RG (BALANCE): ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+    	END IF;
+    	
+    	
+    	--BASES_TOTAL_IMPORTE
+   -- 	BASES_TOTAL_IMPORTE_102_03_RG = 
+			-- SELECT POSITIONSEQ, SUM(IMPORTE_COMISION) AS SUMA_IMPORTE
+			-- FROM :TEMP_BASES_102_03_RG
+			-- WHERE IMPORTE_COMISION <> 0
+			-- GROUP BY POSITIONSEQ;
+			
+    	--FINAL
+    	TEMP_FINAL_PAGOS_BASES_102_03_RG = SELECT P.PARTICIPANTSEQ,
+                                P.POSITIONSEQ,
+                                P.PERIODSEQ,
+                                :v_periodName AS PERIODO,
+                                P.POS_CALLIDUS POSITIONNAME,
+                                P.POS_PRIN,
+                                P.NIF,
+                                P.MANAGER_POS_PRIN,
+                                ORDERID,
+                                LINENUMBER,
+                                SUBLINENUMBER,
+                                EVENTTYPEID,
+                                PRODUCTID,
+                                CODIGO_POLIZA,
+                                COMPENSATIONDATE,
+                                ESTADO,
+                                P.PROGRAMA,
+                                P.TIPO_PAGO,
+                                P.DEPOSITO,
+                                P.DEPOSITSEQ,
+                                P.IMPORTE IMPORTE_PAGO,
+                                P.EARNINGCODEID,
+                                P.EARNINGGROUPID,
+                                P.TIPO_DOCUMENTO,
+                                P.TIPO_AGENTE,
+                                B.IMPORTE_COMISION AS IMPORTE,
+                                (SELECT SUM(IMPORTE_COMISION)
+                                	FROM :TEMP_BASES_102_03_RG S
+                                	WHERE S.POSITIONSEQ = B.POSITIONSEQ
+                                	AND ((RIGHT(P.EARNINGGROUPID,3) = 'AUT' AND S.AUTOLIQUIDA = 1)
+											OR
+										 (RIGHT(P.EARNINGGROUPID,3) <> 'AUT' AND IFNULL(S.AUTOLIQUIDA,0) = 0))
+                                ) AS SUMA_IMPORTE,
+                                NULL AS TIPO_REPARTO,
+                                0 AS NUM_TRAMO,
+                                NULL AS REPARTO_TIPO_BASE,
+                                NULL AS REPARTO_PORCENTAJE,
+                                POLIZA_FISICA,
+                                POLIZA_CORREGIDA,
+                                PRIMA_CORREGIDA,
+                                PRIMA_NETA,
+                                PRIMA_NETA_ANUAL,
+                                PRIMA_COMIS_S4 PRIMA_COMIS,
+                                NULL AS COEF_TIPO_BASE,
+                                NULL AS COEF_CORRECTOR,
+                                COD_AGENTE,
+                                P.TIPO_LIQ
+    					FROM :TEMP_PAGOS_DIRECTOS_102_03_RG P
+    					INNER JOIN :TEMP_BASES_102_03_RG B ON P.POSITIONSEQ = B.POSITIONSEQ
+    					--INNER JOIN :BASES_TOTAL_IMPORTE_102_03_RG BT ON BT.POSITIONSEQ = B.POSITIONSEQ
+    					WHERE 
+    					-- TIPO CONCEPTO: IMPORTE_COMISION
+    					B.IMPORTE_COMISION <> 0
+    					AND NOT EXISTS (
+    					    SELECT 1 
+    					    FROM EXT.FINAL_REPEXT_FILE_TEST X 
+    					    WHERE X.POS_PRIN       = P.POS_PRIN
+    					      AND X.PERIODSEQ      = P.PERIODSEQ
+    					      AND X.EARNINGCODEID  = P.EARNINGCODEID
+    					      AND X.EARNINGGROUPID = P.EARNINGGROUPID
+    					      AND X.TIPO_DOCUMENTO = P.TIPO_DOCUMENTO
+    					      AND X.ORDERID        = B.ORDERID
+    					      AND X.LINENUMBER     = B.LINENUMBER
+    					      AND X.SUBLINENUMBER  = B.SUBLINENUMBER
+    					      AND X.EVENTTYPEID    = B.EVENTTYPEID
+    					)
+    					AND (
+    	    				(RIGHT(P.EARNINGGROUPID,3) = 'AUT' AND B.AUTOLIQUIDA = 1)
+	        				OR
+	        				(RIGHT(P.EARNINGGROUPID,3) <> 'AUT' AND IFNULL(B.AUTOLIQUIDA,0) = 0)
+    					);
+    					
+    	CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_FINAL_PAGOS_BASES_102_03_RG: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+    	
+    	--LIQUIDACIÓN COMPLEMENTARIA
+		IF v_num_post > 1 AND i_tipo_reparto = 'CIERRE' THEN
+		
+			TEMP_PAGOS_DIRECTOS_102_03_RG_LC = SELECT SUM(IMPORTE) SUMA_PAGOS,PERIODSEQ,POS_PRIN,EARNINGGROUPID,EARNINGCODEID,DEPOSITO 
+				FROM :TEMP_FINAL_PAGOS_BASES_102_03_RG 
+				WHERE TIPO_LIQ IN ('CIERRE','LIQ')
+				GROUP BY PERIODSEQ,POS_PRIN,EARNINGGROUPID,EARNINGCODEID,DEPOSITO;
+		
+			INSERT INTO EXT.FINAL_REPEXT_FILE_TEST("TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+		        ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+		        ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+		        ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ")
+		    SELECT "TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+		        ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE"*(-1),"TIPO_AGENTE","TIPO_DOCUMENTO",TF."EARNINGGROUPID"
+		        ,TF."EARNINGCODEID",TF.SUMA_IMPORTE,"DEPOSITSEQ",TF."DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+		        ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF",TF."POS_PRIN","POSITIONNAME","PERIODO",TF."PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ"
+		    FROM :TEMP_FINAL_PAGOS_BASES_102_03_RG TF 
+		    	INNER JOIN :TEMP_PAGOS_DIRECTOS_102_03_RG_LC TLC ON TF.PERIODSEQ = TLC.PERIODSEQ AND TF.POS_PRIN = TLC.POS_PRIN 
+		    	AND TF.EARNINGGROUPID = TLC.EARNINGGROUPID AND TF.EARNINGCODEID = TLC. EARNINGCODEID AND TF.DEPOSITO = TLC.DEPOSITO
+		    	AND 1 = (CASE WHEN SUMA_PAGOS <> SUMA_IMPORTE THEN 1 END); 
+		 END IF;
+    	-- FIN LIQUIDACIÓN COMPLEMENTARIA
+    	
+    	UPDATE F
+    	SET ESTADO_REPARTO = CASE 
+    		WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 2
+			WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 3
+			ELSE 4 
+		END
+		FROM EXT.FINAL_REPEXT_PAGOS_FILE_TEST F
+		INNER JOIN :TEMP_FINAL_PAGOS_BASES_102_03_RG T ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+		AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID;
+		
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_PAGOS_FILE_TEST ESTADOS ACTUALIZADOS: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+		
+		UPDATE F
+            SET ESTADO_REPARTO = CASE 
+    				WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 2
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 3
+					ELSE 4 
+				END --REPARTO CORRECTO
+			FROM :TEMP_REPEXT_PAGOS_REPARTO_FILE F
+			INNER JOIN :TEMP_FINAL_PAGOS_BASES_102_03_RG T ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+			AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+	--		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID
+			WHERE 1 = (CASE 
+    				WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 1
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+					ELSE 0 
+				END)
+			;
+        CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_REPEXT_PAGOS_REPARTO_FILE ESTADOS ACTUALIZADOS: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');   	
+		
+		INSERT INTO EXT.FINAL_REPEXT_FILE_TEST("TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+            ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+            ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+            ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ")
+        SELECT "TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+            ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+            ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+            ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ"
+        FROM :TEMP_FINAL_PAGOS_BASES_102_03_RG
+        WHERE 1 = (
+        	CASE 
+        		WHEN (IMPORTE_PAGO - IFNULL(SUMA_IMPORTE,0)) = 0 THEN 1
+    			WHEN (IMPORTE_PAGO - IFNULL(SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+    		ELSE 0 
+    		END);
+
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_FILE_TEST INSERTADOS: ' ||::ROWCOUNT, v_log_count, v_idproceso, 'info');	
+		---------------------------------------------------------------------------------------------------
+
+		TEMP_FINAL_PAGOS_BASES_102_03_RG_DIF =
+			SELECT T.PERIODSEQ,T.POS_PRIN,T.TIPO_DOCUMENTO,T.DEPOSITSEQ,T.EARNINGCODEID,T.EARNINGGROUPID,T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0) AS DIF,
+				T.ORDERID,T.LINENUMBER,T.SUBLINENUMBER,T.EVENTTYPEID, T.COMPENSATIONDATE,
+				ROW_NUMBER() OVER(
+                      		PARTITION BY T.PERIODSEQ,T.POS_PRIN,T.TIPO_DOCUMENTO,T.DEPOSITSEQ,T.EARNINGCODEID,T.EARNINGGROUPID
+                      		--ORDER BY T.ORDERID
+                      ) AS RN_TRX
+			FROM :TEMP_FINAL_PAGOS_BASES_102_03_RG T
+			WHERE 1 = (CASE 
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 0
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+					ELSE 0 
+				END)
+		;
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_FINAL_PAGOS_BASES_102_03_RG_DIF: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+		UPDATE F
+    	SET F.IMPORTE = F.IMPORTE + T.DIF
+    	FROM EXT.FINAL_REPEXT_FILE_TEST F
+    	INNER JOIN :TEMP_FINAL_PAGOS_BASES_102_03_RG_DIF T  ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+		AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID
+		AND F.ORDERID = T.ORDERID AND F.LINENUMBER = T.LINENUMBER AND F.SUBLINENUMBER = T.SUBLINENUMBER AND F.EVENTTYPEID = T.EVENTTYPEID AND F.COMPENSATIONDATE = T.COMPENSATIONDATE
+		AND T.RN_TRX = 1
+		;
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_FILE_TEST IMPORTE_DIF: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+
+
+	
+		---------------------------------------------------------------------------------------------------
+		-- 112-01_RT	
+		---------------------------------------------------------------------------------------------------
+		--PAGOS
+		TEMP_PAGOS_DIRECTOS_112_01_RT = SELECT *
+    		FROM :TEMP_PAGOS_DIRECTOS
+    		WHERE SUBSTRING(EARNINGGROUPID,7,5) = '01-RT'
+    		AND EARNINGCODEID = '112';
+    		
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_PAGOS_DIRECTOS_112_01_RT: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+		--BASES
+		IF i_tipo_reparto = 'CIERRE' THEN
+			TEMP_BASES_112_01_RT = SELECT * 
+	    		FROM EXT.FINAL_BASES_REPARTO_POLIZA_FILE B
+	    		WHERE PERIODSEQ = i_periodSeq
+	    		-- EARNINGGROUPID = '01-RT'
+	    		AND PRODUCTID LIKE '012%'
+	    		-- EARNINGCODEID = '112'
+	    		AND EVENTTYPEID = '10';
+	    		
+	    	CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_BASES_112_01_RT: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+	    ELSE
+	    	TEMP_BASES_112_01_RT = SELECT * 
+    		FROM EXT.FINAL_BASES_REPARTO_POLIZA_FILE_NUEVA_BASE_REPARTO B
+    		WHERE PERIODSEQ = v_periodSeqAnterior
+    		-- EARNINGGROUPID = '01-RT'
+    		AND PRODUCTID LIKE '012%'
+    		-- EARNINGCODEID = '112'
+    		AND EVENTTYPEID = '10';
+    		
+    		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_BASES_112_01_RT (BALANCE): ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+    	END IF;
+    	
+   -- 	--BASES_TOTAL_IMPORTE
+   -- 	BASES_TOTAL_IMPORTE_112_01_RT = 
+			-- SELECT POSITIONSEQ, SUM(IMPORTE_COMISION) AS SUMA_IMPORTE
+			-- FROM :TEMP_BASES_112_01_RT
+			-- WHERE IMPORTE_COMISION <> 0
+			-- GROUP BY POSITIONSEQ;
+			
+    	--FINAL
+    	TEMP_FINAL_PAGOS_BASES_112_01_RT = SELECT P.PARTICIPANTSEQ,
+                                P.POSITIONSEQ,
+                                P.PERIODSEQ,
+                                :v_periodName AS PERIODO,
+                                P.POS_CALLIDUS POSITIONNAME,
+                                P.POS_PRIN,
+                                P.NIF,
+                                P.MANAGER_POS_PRIN,
+                                ORDERID,
+                                LINENUMBER,
+                                SUBLINENUMBER,
+                                EVENTTYPEID,
+                                PRODUCTID,
+                                CODIGO_POLIZA,
+                                COMPENSATIONDATE,
+                                ESTADO,
+                                P.PROGRAMA,
+                                P.TIPO_PAGO,
+                                P.DEPOSITO,
+                                P.DEPOSITSEQ,
+                                P.IMPORTE IMPORTE_PAGO,
+                                P.EARNINGCODEID,
+                                P.EARNINGGROUPID,
+                                P.TIPO_DOCUMENTO,
+                                P.TIPO_AGENTE,
+                                B.IMPORTE_COMISION AS IMPORTE,
+                                (SELECT SUM(IMPORTE_COMISION)
+                                	FROM :TEMP_BASES_112_01_RT S
+                                	WHERE S.POSITIONSEQ = B.POSITIONSEQ
+                                	AND ((RIGHT(P.EARNINGGROUPID,3) = 'AUT' AND S.AUTOLIQUIDA = 1)
+											OR
+										 (RIGHT(P.EARNINGGROUPID,3) <> 'AUT' AND IFNULL(S.AUTOLIQUIDA,0) = 0))
+                                ) AS SUMA_IMPORTE,
+                                NULL AS TIPO_REPARTO,
+                                0 AS NUM_TRAMO,
+                                NULL AS REPARTO_TIPO_BASE,
+                                NULL AS REPARTO_PORCENTAJE,
+                                POLIZA_FISICA,
+                                POLIZA_CORREGIDA,
+                                PRIMA_CORREGIDA,
+                                PRIMA_NETA,
+                                PRIMA_NETA_ANUAL,
+                                PRIMA_COMIS_S4 PRIMA_COMIS,
+                                NULL AS COEF_TIPO_BASE,
+                                NULL AS COEF_CORRECTOR,
+                                COD_AGENTE,
+                                P.TIPO_LIQ
+    					FROM :TEMP_PAGOS_DIRECTOS_112_01_RT P
+    					INNER JOIN :TEMP_BASES_112_01_RT B ON P.POSITIONSEQ = B.POSITIONSEQ
+    			--		INNER JOIN :BASES_TOTAL_IMPORTE_112_01_RT BT ON BT.POSITIONSEQ = B.POSITIONSEQ
+    					WHERE 
+    					-- TIPO CONCEPTO: IMPORTE_COMISION
+    					B.IMPORTE_COMISION <> 0
+    					AND NOT EXISTS (
+    					    SELECT 1 
+    					    FROM EXT.FINAL_REPEXT_FILE_TEST X 
+    					    WHERE X.POS_PRIN       = P.POS_PRIN
+    					      AND X.PERIODSEQ      = P.PERIODSEQ
+    					      AND X.EARNINGCODEID  = P.EARNINGCODEID
+    					      AND X.EARNINGGROUPID = P.EARNINGGROUPID
+    					      AND X.TIPO_DOCUMENTO = P.TIPO_DOCUMENTO
+    					      AND X.ORDERID        = B.ORDERID
+    					      AND X.LINENUMBER     = B.LINENUMBER
+    					      AND X.SUBLINENUMBER  = B.SUBLINENUMBER
+    					      AND X.EVENTTYPEID    = B.EVENTTYPEID
+    					)
+    					AND (
+    	    				(RIGHT(P.EARNINGGROUPID,3) = 'AUT' AND B.AUTOLIQUIDA = 1)
+	        				OR
+	        				(RIGHT(P.EARNINGGROUPID,3) <> 'AUT' AND IFNULL(B.AUTOLIQUIDA,0) = 0)
+    					);
+    	CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_FINAL_PAGOS_BASES_112_01_RT: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+    	
+    	--LIQUIDACIÓN COMPLEMENTARIA
+		IF v_num_post > 1 AND i_tipo_reparto = 'CIERRE' THEN
+		
+			TEMP_PAGOS_DIRECTOS_112_01_RT_LC = SELECT SUM(IMPORTE) SUMA_PAGOS,PERIODSEQ,POS_PRIN,EARNINGGROUPID,EARNINGCODEID,DEPOSITO 
+				FROM :TEMP_FINAL_PAGOS_BASES_112_01_RT 
+				WHERE TIPO_LIQ IN ('CIERRE','LIQ')
+				GROUP BY PERIODSEQ,POS_PRIN,EARNINGGROUPID,EARNINGCODEID,DEPOSITO;
+		
+			INSERT INTO EXT.FINAL_REPEXT_FILE_TEST("TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+		        ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+		        ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+		        ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ")
+		    SELECT "TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+		        ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE"*(-1),"TIPO_AGENTE","TIPO_DOCUMENTO",TF."EARNINGGROUPID"
+		        ,TF."EARNINGCODEID",TF.SUMA_IMPORTE,"DEPOSITSEQ",TF."DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+		        ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF",TF."POS_PRIN","POSITIONNAME","PERIODO",TF."PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ"
+		    FROM :TEMP_FINAL_PAGOS_BASES_112_01_RT TF 
+		    	INNER JOIN :TEMP_PAGOS_DIRECTOS_112_01_RT_LC TLC ON TF.PERIODSEQ = TLC.PERIODSEQ AND TF.POS_PRIN = TLC.POS_PRIN 
+		    	AND TF.EARNINGGROUPID = TLC.EARNINGGROUPID AND TF.EARNINGCODEID = TLC. EARNINGCODEID AND TF.DEPOSITO = TLC.DEPOSITO
+		    	AND 1 = (CASE WHEN SUMA_PAGOS <> SUMA_IMPORTE THEN 1 END); 
+		 END IF;
+    	-- FIN LIQUIDACIÓN COMPLEMENTARIA
+    	
+    	UPDATE F
+    	SET ESTADO_REPARTO = CASE 
+    		WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 2
+			WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 3
+			ELSE 4 
+		END
+		FROM EXT.FINAL_REPEXT_PAGOS_FILE_TEST F
+		INNER JOIN :TEMP_FINAL_PAGOS_BASES_112_01_RT T ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+		AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID;
+		
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_PAGOS_FILE_TEST ESTADOS ACTUALIZADOS: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+		
+		UPDATE F
+            SET ESTADO_REPARTO = CASE 
+    				WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 2
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 3
+					ELSE 4 
+				END --REPARTO CORRECTO
+			FROM :TEMP_REPEXT_PAGOS_REPARTO_FILE F
+			INNER JOIN :TEMP_FINAL_PAGOS_BASES_112_01_RT T ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+			AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+			WHERE 1 = (CASE 
+    				WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 1
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+					ELSE 0 
+				END)
+	--		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID
+			;
+        CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_REPEXT_PAGOS_REPARTO_FILE ESTADOS ACTUALIZADOS: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');   
+                                   
+		
+		INSERT INTO EXT.FINAL_REPEXT_FILE_TEST("TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+            ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+            ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+            ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ")
+        SELECT "TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+            ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+            ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+            ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ"
+        FROM :TEMP_FINAL_PAGOS_BASES_112_01_RT
+        WHERE 1 = (
+        	CASE 
+        		WHEN (IMPORTE_PAGO - IFNULL(SUMA_IMPORTE,0)) = 0 THEN 1
+    			WHEN (IMPORTE_PAGO - IFNULL(SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+    		ELSE 0 
+    		END);
+
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_FILE_TEST INSERTADOS: ' ||::ROWCOUNT, v_log_count, v_idproceso, 'info');	
+		---------------------------------------------------------------------------------------------------
+
+		TEMP_FINAL_PAGOS_BASES_112_01_RT_DIF =
+			SELECT T.PERIODSEQ,T.POS_PRIN,T.TIPO_DOCUMENTO,T.DEPOSITSEQ,T.EARNINGCODEID,T.EARNINGGROUPID,T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0) AS DIF,
+				T.ORDERID,T.LINENUMBER,T.SUBLINENUMBER,T.EVENTTYPEID, T.COMPENSATIONDATE,
+				ROW_NUMBER() OVER(
+                      		PARTITION BY T.PERIODSEQ,T.POS_PRIN,T.TIPO_DOCUMENTO,T.DEPOSITSEQ,T.EARNINGCODEID,T.EARNINGGROUPID
+                      		--ORDER BY T.ORDERID
+                      ) AS RN_TRX
+			FROM :TEMP_FINAL_PAGOS_BASES_112_01_RT T
+			WHERE 1 = (CASE 
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 0
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+					ELSE 0 
+				END)
+		;
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_FINAL_PAGOS_BASES_112_01_RT_DIF: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+		UPDATE F
+    	SET F.IMPORTE = F.IMPORTE + T.DIF
+    	FROM EXT.FINAL_REPEXT_FILE_TEST F
+    	INNER JOIN :TEMP_FINAL_PAGOS_BASES_112_01_RT_DIF T  ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+		AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID
+		AND F.ORDERID = T.ORDERID AND F.LINENUMBER = T.LINENUMBER AND F.SUBLINENUMBER = T.SUBLINENUMBER AND F.EVENTTYPEID = T.EVENTTYPEID AND F.COMPENSATIONDATE = T.COMPENSATIONDATE
+		AND T.RN_TRX = 1
+		;
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_FILE_TEST IMPORTE_DIF: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+		
+		
+		
+		---------------------------------------------------------------------------------------------------
+		-- 112-01_RG	
+		---------------------------------------------------------------------------------------------------
+		--PAGOS
+		TEMP_PAGOS_DIRECTOS_112_01_RG = SELECT *
+    		FROM :TEMP_PAGOS_DIRECTOS
+    		WHERE SUBSTRING(EARNINGGROUPID,7,5) = '01-RG'
+    		AND EARNINGCODEID = '112';
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_PAGOS_DIRECTOS_112_01_RG: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+		--BASES
+		IF i_tipo_reparto = 'CIERRE' THEN
+			TEMP_BASES_112_01_RG = SELECT * 
+	    		FROM EXT.FINAL_BASES_REPARTO_POLIZA_FILE B
+	    		WHERE PERIODSEQ = i_periodSeq
+	    		-- EARNINGGROUPID = '01-RG'
+	    		AND PRODUCTID LIKE '01%' AND PRODUCTID NOT LIKE '012%'
+	    		-- EARNINGCODEID = '112'
+	    	-- 	AND (EVENTTYPEID IN ('71','65','66','72','42')
+	    	-- 		   OR (EVENTTYPEID = '43' AND SALESTRANSACTIONSEQ IN (
+	    	-- 	        SELECT T.SALESTRANSACTIONSEQ FROM EXT.TEMP_REPEXT_TXN_FILE T
+	    	-- 	        WHERE T.SALESTRANSACTIONSEQ = B.SALESTRANSACTIONSEQ
+	    	-- 	        AND T.FECHA_EFECTO > ADD_MONTHS(T.FECHA_VTO_RECIBO,-12)
+	    	-- 	    )))
+	            AND EVENTTYPEID = '10';
+	            
+	    	CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_BASES_112_01_RG: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+	    ELSE
+	    		TEMP_BASES_112_01_RG = SELECT * 
+    				FROM EXT.FINAL_BASES_REPARTO_POLIZA_FILE_NUEVA_BASE_REPARTO B
+    				WHERE PERIODSEQ = v_periodSeqAnterior
+    				-- EARNINGGROUPID = '01-RG'
+    				AND PRODUCTID LIKE '01%' AND PRODUCTID NOT LIKE '012%'
+    				-- EARNINGCODEID = '112'
+    			-- 	AND (EVENTTYPEID IN ('71','65','66','72','42')
+    			-- 		   OR (EVENTTYPEID = '43' AND SALESTRANSACTIONSEQ IN (
+    			-- 	        SELECT T.SALESTRANSACTIONSEQ FROM EXT.TEMP_REPEXT_TXN_FILE T
+    			-- 	        WHERE T.SALESTRANSACTIONSEQ = B.SALESTRANSACTIONSEQ
+    			-- 	        AND T.FECHA_EFECTO > ADD_MONTHS(T.FECHA_VTO_RECIBO,-12)
+    			-- 	    )))
+        		    AND EVENTTYPEID = '10';
+            
+    		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_BASES_112_01_RG (BALANCE): ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+    	END IF;
+    	
+   -- 	--BASES_TOTAL_IMPORTE
+   --	BASES_TOTAL_IMPORTE_112_01_RG = 
+			-- SELECT POSITIONSEQ, SUM(IMPORTE_COMISION) AS SUMA_IMPORTE
+			-- FROM :TEMP_BASES_112_01_RG
+			-- WHERE IMPORTE_COMISION <> 0
+			-- GROUP BY POSITIONSEQ;
+    	
+    	--FINAL
+    	TEMP_FINAL_PAGOS_BASES_112_01_RG = SELECT P.PARTICIPANTSEQ,
+                                P.POSITIONSEQ,
+                                P.PERIODSEQ,
+                                :v_periodName AS PERIODO,
+                                P.POS_CALLIDUS POSITIONNAME,
+                                P.POS_PRIN,
+                                P.NIF,
+                                P.MANAGER_POS_PRIN,
+                                ORDERID,
+                                LINENUMBER,
+                                SUBLINENUMBER,
+                                EVENTTYPEID,
+                                PRODUCTID,
+                                CODIGO_POLIZA,
+                                COMPENSATIONDATE,
+                                ESTADO,
+                                P.PROGRAMA,
+                                P.TIPO_PAGO,
+                                P.DEPOSITO,
+                                P.DEPOSITSEQ,
+                                P.IMPORTE IMPORTE_PAGO,
+                                P.EARNINGCODEID,
+                                P.EARNINGGROUPID,
+                                P.TIPO_DOCUMENTO,
+                                P.TIPO_AGENTE,
+                                B.IMPORTE_COMISION AS IMPORTE,
+                                (SELECT SUM(IMPORTE_COMISION)
+                                	FROM :TEMP_BASES_112_01_RG S
+                                	WHERE S.POSITIONSEQ = B.POSITIONSEQ
+                                	AND ((RIGHT(P.EARNINGGROUPID,3) = 'AUT' AND S.AUTOLIQUIDA = 1)
+											OR
+										 (RIGHT(P.EARNINGGROUPID,3) <> 'AUT' AND IFNULL(S.AUTOLIQUIDA,0) = 0))
+                                ) AS SUMA_IMPORTE,
+                                NULL AS TIPO_REPARTO,
+                                0 AS NUM_TRAMO,
+                                NULL AS REPARTO_TIPO_BASE,
+                                NULL AS REPARTO_PORCENTAJE,
+                                POLIZA_FISICA,
+                                POLIZA_CORREGIDA,
+                                PRIMA_CORREGIDA,
+                                PRIMA_NETA,
+                                PRIMA_NETA_ANUAL,
+                                PRIMA_COMIS_S4 PRIMA_COMIS,
+                                NULL AS COEF_TIPO_BASE,
+                                NULL AS COEF_CORRECTOR,
+                                COD_AGENTE,
+                                P.TIPO_LIQ
+    					FROM :TEMP_PAGOS_DIRECTOS_112_01_RG P
+    					INNER JOIN :TEMP_BASES_112_01_RG B ON P.POSITIONSEQ = B.POSITIONSEQ
+    				--	INNER JOIN :BASES_TOTAL_IMPORTE_112_01_RG BT ON BT.POSITIONSEQ = B.POSITIONSEQ
+    					WHERE 
+    					-- TIPO CONCEPTO: IMPORTE_COMISION
+    					B.IMPORTE_COMISION <> 0
+    					AND NOT EXISTS (
+    					    SELECT 1 
+    					    FROM EXT.FINAL_REPEXT_FILE_TEST X 
+    					    WHERE X.POS_PRIN       = P.POS_PRIN
+    					      AND X.PERIODSEQ      = P.PERIODSEQ
+    					      AND X.EARNINGCODEID  = P.EARNINGCODEID
+    					      AND X.EARNINGGROUPID = P.EARNINGGROUPID
+    					      AND X.TIPO_DOCUMENTO = P.TIPO_DOCUMENTO
+    					      AND X.ORDERID        = B.ORDERID
+    					      AND X.LINENUMBER     = B.LINENUMBER
+    					      AND X.SUBLINENUMBER  = B.SUBLINENUMBER
+    					      AND X.EVENTTYPEID    = B.EVENTTYPEID
+    					)
+    					AND (
+    	    				(RIGHT(P.EARNINGGROUPID,3) = 'AUT' AND B.AUTOLIQUIDA = 1)
+	        				OR
+	        				(RIGHT(P.EARNINGGROUPID,3) <> 'AUT' AND IFNULL(B.AUTOLIQUIDA,0) = 0)
+    					);
+    					
+    	CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_FINAL_PAGOS_BASES_112_01_RG: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+    	
+    	UPDATE F
+    	SET ESTADO_REPARTO = CASE 
+    		WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 2
+			WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 3
+			ELSE 4 
+		END
+		FROM EXT.FINAL_REPEXT_PAGOS_FILE_TEST F
+		INNER JOIN :TEMP_FINAL_PAGOS_BASES_112_01_RG T ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+		AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID;
+		
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_PAGOS_FILE_TEST ESTADOS ACTUALIZADOS: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+		--LIQUIDACIÓN COMPLEMENTARIA
+		IF v_num_post > 1 AND i_tipo_reparto = 'CIERRE' THEN
+		
+			TEMP_PAGOS_DIRECTOS_112_01_RG_LC = SELECT SUM(IMPORTE) SUMA_PAGOS,PERIODSEQ,POS_PRIN,EARNINGGROUPID,EARNINGCODEID,DEPOSITO 
+				FROM :TEMP_FINAL_PAGOS_BASES_112_01_RG 
+				WHERE TIPO_LIQ IN ('CIERRE','LIQ')
+				GROUP BY PERIODSEQ,POS_PRIN,EARNINGGROUPID,EARNINGCODEID,DEPOSITO;
+		
+			INSERT INTO EXT.FINAL_REPEXT_FILE_TEST("TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+		        ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+		        ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+		        ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ")
+		    SELECT "TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+		        ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE"*(-1),"TIPO_AGENTE","TIPO_DOCUMENTO",TF."EARNINGGROUPID"
+		        ,TF."EARNINGCODEID",TF.SUMA_IMPORTE,"DEPOSITSEQ",TF."DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+		        ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF",TF."POS_PRIN","POSITIONNAME","PERIODO",TF."PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ"
+		    FROM :TEMP_FINAL_PAGOS_BASES_112_01_RG TF 
+		    	INNER JOIN :TEMP_PAGOS_DIRECTOS_112_01_RG_LC TLC ON TF.PERIODSEQ = TLC.PERIODSEQ AND TF.POS_PRIN = TLC.POS_PRIN 
+		    	AND TF.EARNINGGROUPID = TLC.EARNINGGROUPID AND TF.EARNINGCODEID = TLC. EARNINGCODEID AND TF.DEPOSITO = TLC.DEPOSITO
+		    	AND 1 = (CASE WHEN SUMA_PAGOS <> SUMA_IMPORTE THEN 1 END); 
+		 END IF;
+    	-- FIN LIQUIDACIÓN COMPLEMENTARIA
+		
+		UPDATE F
+            SET ESTADO_REPARTO = CASE 
+    				WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 2
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 3
+					ELSE 4 
+				END --REPARTO CORRECTO
+			FROM :TEMP_REPEXT_PAGOS_REPARTO_FILE F
+			INNER JOIN :TEMP_FINAL_PAGOS_BASES_112_01_RG T ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+			AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+	--		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID
+			WHERE 1 = (CASE 
+    				WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 1
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+					ELSE 0 
+				END)
+			;
+        CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_REPEXT_PAGOS_REPARTO_FILE ESTADOS ACTUALIZADOS: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');   
+		
+		INSERT INTO EXT.FINAL_REPEXT_FILE_TEST("TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+            ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+            ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+            ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ")
+        SELECT "TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+            ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+            ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+            ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ"
+        FROM :TEMP_FINAL_PAGOS_BASES_112_01_RG
+        WHERE 1 = (
+        	CASE 
+        		WHEN (IMPORTE_PAGO - IFNULL(SUMA_IMPORTE,0)) = 0 THEN 1
+    			WHEN (IMPORTE_PAGO - IFNULL(SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+    		ELSE 0 
+    		END);
+		
+
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_FILE_TEST INSERTADOS: ' ||::ROWCOUNT, v_log_count, v_idproceso, 'info');	
+		---------------------------------------------------------------------------------------------------
+
+		TEMP_FINAL_PAGOS_BASES_112_01_RG_DIF =
+			SELECT T.PERIODSEQ,T.POS_PRIN,T.TIPO_DOCUMENTO,T.DEPOSITSEQ,T.EARNINGCODEID,T.EARNINGGROUPID,T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0) AS DIF,
+				T.ORDERID,T.LINENUMBER,T.SUBLINENUMBER,T.EVENTTYPEID, T.COMPENSATIONDATE,
+				ROW_NUMBER() OVER(
+                      		PARTITION BY T.PERIODSEQ,T.POS_PRIN,T.TIPO_DOCUMENTO,T.DEPOSITSEQ,T.EARNINGCODEID,T.EARNINGGROUPID
+                      		--ORDER BY T.ORDERID
+                      ) AS RN_TRX
+			FROM :TEMP_FINAL_PAGOS_BASES_112_01_RG T
+			WHERE 1 = (CASE 
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 0
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+					ELSE 0 
+				END)
+		;
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_FINAL_PAGOS_BASES_112_01_RG_DIF: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+		UPDATE F
+    	SET F.IMPORTE = F.IMPORTE + T.DIF
+    	FROM EXT.FINAL_REPEXT_FILE_TEST F
+    	INNER JOIN :TEMP_FINAL_PAGOS_BASES_112_01_RG_DIF T  ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+		AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID
+		AND F.ORDERID = T.ORDERID AND F.LINENUMBER = T.LINENUMBER AND F.SUBLINENUMBER = T.SUBLINENUMBER AND F.EVENTTYPEID = T.EVENTTYPEID AND F.COMPENSATIONDATE = T.COMPENSATIONDATE
+		AND T.RN_TRX = 1
+		;
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_FILE_TEST IMPORTE_DIF: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+		
+		
+		---------------------------------------------------------------------------------------------------
+		-- 112-03_RT	
+		---------------------------------------------------------------------------------------------------
+		--PAGOS
+		TEMP_PAGOS_DIRECTOS_112_03_RT = SELECT *
+    		FROM :TEMP_PAGOS_DIRECTOS
+    		WHERE SUBSTRING(EARNINGGROUPID,7,5) = '03-RT'
+    		AND EARNINGCODEID = '112';
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_PAGOS_DIRECTOS_112_03_RT: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+		--BASES
+		IF i_tipo_reparto = 'CIERRE' THEN
+			TEMP_BASES_112_03_RT = SELECT * 
+	    		FROM EXT.FINAL_BASES_REPARTO_POLIZA_FILE B
+	    		WHERE PERIODSEQ = i_periodSeq
+	    		-- EARNINGGROUPID = '01-RT'
+	    		AND PRODUCTID LIKE '032%'
+	    		-- EARNINGCODEID = '112'
+	    		/*AND (EVENTTYPEID IN ('71','65','66','72','42')
+	    			   OR (EVENTTYPEID = '43' AND SALESTRANSACTIONSEQ IN (
+	    		        SELECT T.SALESTRANSACTIONSEQ FROM EXT.TEMP_REPEXT_TXN_FILE T
+	    		        WHERE T.SALESTRANSACTIONSEQ = B.SALESTRANSACTIONSEQ
+	    		        AND T.FECHA_EFECTO > ADD_MONTHS(T.FECHA_VTO_RECIBO,-12)
+	    		    )))*/
+	            AND EVENTTYPEID = '10';
+	            
+	    	CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_BASES_112_03_RT: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+	    ELSE
+	    	TEMP_BASES_112_03_RT = SELECT * 
+    		FROM EXT.FINAL_BASES_REPARTO_POLIZA_FILE_NUEVA_BASE_REPARTO B
+    		WHERE PERIODSEQ = v_periodSeqAnterior
+    		-- EARNINGGROUPID = '01-RT'
+    		AND PRODUCTID LIKE '032%'
+    		-- EARNINGCODEID = '112'
+    		/*AND (EVENTTYPEID IN ('71','65','66','72','42')
+    			   OR (EVENTTYPEID = '43' AND SALESTRANSACTIONSEQ IN (
+    		        SELECT T.SALESTRANSACTIONSEQ FROM EXT.TEMP_REPEXT_TXN_FILE T
+    		        WHERE T.SALESTRANSACTIONSEQ = B.SALESTRANSACTIONSEQ
+    		        AND T.FECHA_EFECTO > ADD_MONTHS(T.FECHA_VTO_RECIBO,-12)
+    		    )))*/
+            AND EVENTTYPEID = '10';
+            
+    	CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_BASES_112_03_RT (BALANCE): ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+    	END IF;
+    	
+   -- 	--BASES_TOTAL_IMPORTE
+   --	BASES_TOTAL_IMPORTE_112_03_RT = 
+			-- SELECT POSITIONSEQ, SUM(IMPORTE_COMISION) AS SUMA_IMPORTE
+			-- FROM :TEMP_BASES_112_03_RT
+			-- WHERE IMPORTE_COMISION <> 0
+			-- GROUP BY POSITIONSEQ;
+			
+    	--FINAL
+    	TEMP_FINAL_PAGOS_BASES_112_03_RT = SELECT P.PARTICIPANTSEQ,
+                                P.POSITIONSEQ,
+                                P.PERIODSEQ,
+                                :v_periodName AS PERIODO,
+                                P.POS_CALLIDUS POSITIONNAME,
+                                P.POS_PRIN,
+                                P.NIF,
+                                P.MANAGER_POS_PRIN,
+                                ORDERID,
+                                LINENUMBER,
+                                SUBLINENUMBER,
+                                EVENTTYPEID,
+                                PRODUCTID,
+                                CODIGO_POLIZA,
+                                COMPENSATIONDATE,
+                                ESTADO,
+                                P.PROGRAMA,
+                                P.TIPO_PAGO,
+                                P.DEPOSITO,
+                                P.DEPOSITSEQ,
+                                P.IMPORTE IMPORTE_PAGO,
+                                P.EARNINGCODEID,
+                                P.EARNINGGROUPID,
+                                P.TIPO_DOCUMENTO,
+                                P.TIPO_AGENTE,
+                                B.IMPORTE_COMISION AS IMPORTE,
+                                (SELECT SUM(IMPORTE_COMISION)
+                                	FROM :TEMP_BASES_112_03_RT S
+                                	WHERE S.POSITIONSEQ = B.POSITIONSEQ
+                                	AND ((RIGHT(P.EARNINGGROUPID,3) = 'AUT' AND S.AUTOLIQUIDA = 1)
+											OR
+										 (RIGHT(P.EARNINGGROUPID,3) <> 'AUT' AND IFNULL(S.AUTOLIQUIDA,0) = 0))
+                                ) AS SUMA_IMPORTE,
+                                NULL AS TIPO_REPARTO,
+                                0 AS NUM_TRAMO,
+                                NULL AS REPARTO_TIPO_BASE,
+                                NULL AS REPARTO_PORCENTAJE,
+                                POLIZA_FISICA,
+                                POLIZA_CORREGIDA,
+                                PRIMA_CORREGIDA,
+                                PRIMA_NETA,
+                                PRIMA_NETA_ANUAL,
+                                PRIMA_COMIS_S4 PRIMA_COMIS,
+                                NULL AS COEF_TIPO_BASE,
+                                NULL AS COEF_CORRECTOR,
+                                COD_AGENTE,
+                                P.TIPO_LIQ
+    					FROM :TEMP_PAGOS_DIRECTOS_112_03_RT P
+    					INNER JOIN :TEMP_BASES_112_03_RT B ON P.POSITIONSEQ = B.POSITIONSEQ
+    				--	INNER JOIN :BASES_TOTAL_IMPORTE_112_03_RT BT ON BT.POSITIONSEQ = B.POSITIONSEQ
+    					WHERE 
+    					-- TIPO CONCEPTO: IMPORTE_COMISION
+    					B.IMPORTE_COMISION <> 0
+    					AND NOT EXISTS (
+    					    SELECT 1 
+    					    FROM EXT.FINAL_REPEXT_FILE_TEST X 
+    					    WHERE X.POS_PRIN       = P.POS_PRIN
+    					      AND X.PERIODSEQ      = P.PERIODSEQ
+    					      AND X.EARNINGCODEID  = P.EARNINGCODEID
+    					      AND X.EARNINGGROUPID = P.EARNINGGROUPID
+    					      AND X.TIPO_DOCUMENTO = P.TIPO_DOCUMENTO
+    					      AND X.ORDERID        = B.ORDERID
+    					      AND X.LINENUMBER     = B.LINENUMBER
+    					      AND X.SUBLINENUMBER  = B.SUBLINENUMBER
+    					      AND X.EVENTTYPEID    = B.EVENTTYPEID
+    					)
+    					AND (
+    	    				(RIGHT(P.EARNINGGROUPID,3) = 'AUT' AND B.AUTOLIQUIDA = 1)
+	        				OR
+	        				(RIGHT(P.EARNINGGROUPID,3) <> 'AUT' AND IFNULL(B.AUTOLIQUIDA,0) = 0)
+    					);
+    					
+    	CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_FINAL_PAGOS_BASES_112_03_RT: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+    	
+    	--LIQUIDACIÓN COMPLEMENTARIA
+		IF v_num_post > 1 AND i_tipo_reparto = 'CIERRE' THEN
+		
+			TEMP_PAGOS_DIRECTOS_112_03_RT_LC = SELECT SUM(IMPORTE) SUMA_PAGOS,PERIODSEQ,POS_PRIN,EARNINGGROUPID,EARNINGCODEID,DEPOSITO 
+				FROM :TEMP_FINAL_PAGOS_BASES_112_03_RT 
+				WHERE TIPO_LIQ IN ('CIERRE','LIQ')
+				GROUP BY PERIODSEQ,POS_PRIN,EARNINGGROUPID,EARNINGCODEID,DEPOSITO;
+		
+			INSERT INTO EXT.FINAL_REPEXT_FILE_TEST("TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+		        ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+		        ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+		        ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ")
+		    SELECT "TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+		        ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE"*(-1),"TIPO_AGENTE","TIPO_DOCUMENTO",TF."EARNINGGROUPID"
+		        ,TF."EARNINGCODEID",TF.SUMA_IMPORTE,"DEPOSITSEQ",TF."DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+		        ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF",TF."POS_PRIN","POSITIONNAME","PERIODO",TF."PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ"
+		    FROM :TEMP_FINAL_PAGOS_BASES_112_03_RT TF 
+		    	INNER JOIN :TEMP_PAGOS_DIRECTOS_112_03_RT_LC TLC ON TF.PERIODSEQ = TLC.PERIODSEQ AND TF.POS_PRIN = TLC.POS_PRIN 
+		    	AND TF.EARNINGGROUPID = TLC.EARNINGGROUPID AND TF.EARNINGCODEID = TLC. EARNINGCODEID AND TF.DEPOSITO = TLC.DEPOSITO
+		    	AND 1 = (CASE WHEN SUMA_PAGOS <> SUMA_IMPORTE THEN 1 END); 
+		 END IF;
+    	-- FIN LIQUIDACIÓN COMPLEMENTARIA
+    	
+    	UPDATE F
+    	SET ESTADO_REPARTO = CASE 
+    		WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 2
+			WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 3
+			ELSE 4 
+		END
+		FROM EXT.FINAL_REPEXT_PAGOS_FILE_TEST F
+		INNER JOIN :TEMP_FINAL_PAGOS_BASES_112_03_RT T ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+		AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID;
+		
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_PAGOS_FILE_TEST ESTADOS ACTUALIZADOS: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+		
+		UPDATE F
+            SET ESTADO_REPARTO = CASE 
+    				WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 2
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 3
+					ELSE 4 
+				END --REPARTO CORRECTO
+			FROM :TEMP_REPEXT_PAGOS_REPARTO_FILE F
+			INNER JOIN :TEMP_FINAL_PAGOS_BASES_112_03_RT T ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+			AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+	--		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID
+			WHERE 1 = (CASE 
+    				WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 1
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+					ELSE 0 
+				END)
+			;
+        CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_REPEXT_PAGOS_REPARTO_FILE ESTADOS ACTUALIZADOS: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');   
+		
+		INSERT INTO EXT.FINAL_REPEXT_FILE_TEST("TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+            ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+            ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+            ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ")
+        SELECT "TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+            ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+            ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+            ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ"
+        FROM :TEMP_FINAL_PAGOS_BASES_112_03_RT
+        WHERE 1 = (
+        	CASE 
+        		WHEN (IMPORTE_PAGO - IFNULL(SUMA_IMPORTE,0)) = 0 THEN 1
+    			WHEN (IMPORTE_PAGO - IFNULL(SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+    		ELSE 0 
+    		END);
+
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_FILE_TEST INSERTADOS: ' ||::ROWCOUNT, v_log_count, v_idproceso, 'info');			
+		---------------------------------------------------------------------------------------------------
+
+		TEMP_FINAL_PAGOS_BASES_112_03_RT_DIF =
+			SELECT T.PERIODSEQ,T.POS_PRIN,T.TIPO_DOCUMENTO,T.DEPOSITSEQ,T.EARNINGCODEID,T.EARNINGGROUPID,T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0) AS DIF,
+				T.ORDERID,T.LINENUMBER,T.SUBLINENUMBER,T.EVENTTYPEID, T.COMPENSATIONDATE,
+				ROW_NUMBER() OVER(
+                      		PARTITION BY T.PERIODSEQ,T.POS_PRIN,T.TIPO_DOCUMENTO,T.DEPOSITSEQ,T.EARNINGCODEID,T.EARNINGGROUPID
+                      		--ORDER BY T.ORDERID
+                      ) AS RN_TRX
+			FROM :TEMP_FINAL_PAGOS_BASES_112_03_RT T
+			WHERE 1 = (CASE 
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 0
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+					ELSE 0 
+				END)
+		;
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_FINAL_PAGOS_BASES_112_03_RT_DIF: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+		UPDATE F
+    	SET F.IMPORTE = F.IMPORTE + T.DIF
+    	FROM EXT.FINAL_REPEXT_FILE_TEST F
+    	INNER JOIN :TEMP_FINAL_PAGOS_BASES_112_03_RT_DIF T  ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+		AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID
+		AND F.ORDERID = T.ORDERID AND F.LINENUMBER = T.LINENUMBER AND F.SUBLINENUMBER = T.SUBLINENUMBER AND F.EVENTTYPEID = T.EVENTTYPEID AND F.COMPENSATIONDATE = T.COMPENSATIONDATE
+		AND T.RN_TRX = 1
+		;
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_FILE_TEST IMPORTE_DIF: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+
+		
+		
+		---------------------------------------------------------------------------------------------------
+		-- 112-03_RG	
+		---------------------------------------------------------------------------------------------------
+		--PAGOS
+		TEMP_PAGOS_DIRECTOS_112_03_RG = SELECT *
+    		FROM :TEMP_PAGOS_DIRECTOS
+    		WHERE SUBSTRING(EARNINGGROUPID,7,5) = '03-RG'
+    		AND EARNINGCODEID = '112';
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_PAGOS_DIRECTOS_112_03_RG: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+		--BASES
+		IF i_tipo_reparto = 'CIERRE' THEN
+			TEMP_BASES_112_03_RG = SELECT * 
+	    		FROM EXT.FINAL_BASES_REPARTO_POLIZA_FILE B
+	    		WHERE PERIODSEQ = i_periodSeq
+	    		-- EARNINGGROUPID = '03-RG'
+	    		AND PRODUCTID LIKE '03%' AND PRODUCTID NOT LIKE '032%'
+	    		-- EARNINGCODEID = '112'
+	    		/*AND (EVENTTYPEID IN ('71','65','66','72','42')
+	    			   OR (EVENTTYPEID = '43' AND SALESTRANSACTIONSEQ IN (
+	    		        SELECT T.SALESTRANSACTIONSEQ FROM EXT.TEMP_REPEXT_TXN_FILE T
+	    		        WHERE T.SALESTRANSACTIONSEQ = B.SALESTRANSACTIONSEQ
+	    		        AND T.FECHA_EFECTO > ADD_MONTHS(T.FECHA_VTO_RECIBO,-12)
+	    		    )))*/
+	            AND EVENTTYPEID = '10';
+	    	CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_BASES_112_03_RG: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+    	ELSE
+    		TEMP_BASES_112_03_RG = SELECT * 
+	    		FROM EXT.FINAL_BASES_REPARTO_POLIZA_FILE_NUEVA_BASE_REPARTO B
+	    		WHERE PERIODSEQ = v_periodSeqAnterior
+	    		-- EARNINGGROUPID = '03-RG'
+	    		AND PRODUCTID LIKE '03%' AND PRODUCTID NOT LIKE '032%'
+	    		-- EARNINGCODEID = '112'
+	    		/*AND (EVENTTYPEID IN ('71','65','66','72','42')
+	    			   OR (EVENTTYPEID = '43' AND SALESTRANSACTIONSEQ IN (
+	    		        SELECT T.SALESTRANSACTIONSEQ FROM EXT.TEMP_REPEXT_TXN_FILE T
+	    		        WHERE T.SALESTRANSACTIONSEQ = B.SALESTRANSACTIONSEQ
+	    		        AND T.FECHA_EFECTO > ADD_MONTHS(T.FECHA_VTO_RECIBO,-12)
+	    		    )))*/
+	            AND EVENTTYPEID = '10';
+	    	CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_BASES_112_03_RG (BALANCE): ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+    	END IF;
+    	
+   -- 	--BASES_TOTAL_IMPORTE
+   -- 	BASES_TOTAL_IMPORTE_112_03_RG = 
+			-- SELECT POSITIONSEQ, SUM(IMPORTE_COMISION) AS SUMA_IMPORTE
+			-- FROM :TEMP_BASES_112_03_RG
+			-- WHERE IMPORTE_COMISION <> 0
+			-- GROUP BY POSITIONSEQ;
+    	
+    	--FINAL
+    	TEMP_FINAL_PAGOS_BASES_112_03_RG = SELECT P.PARTICIPANTSEQ,
+                                P.POSITIONSEQ,
+                                P.PERIODSEQ,
+                                :v_periodName AS PERIODO,
+                                P.POS_CALLIDUS POSITIONNAME,
+                                P.POS_PRIN,
+                                P.NIF,
+                                P.MANAGER_POS_PRIN,
+                                ORDERID,
+                                LINENUMBER,
+                                SUBLINENUMBER,
+                                EVENTTYPEID,
+                                PRODUCTID,
+                                CODIGO_POLIZA,
+                                COMPENSATIONDATE,
+                                ESTADO,
+                                P.PROGRAMA,
+                                P.TIPO_PAGO,
+                                P.DEPOSITO,
+                                P.DEPOSITSEQ,
+                                P.IMPORTE IMPORTE_PAGO,
+                                P.EARNINGCODEID,
+                                P.EARNINGGROUPID,
+                                P.TIPO_DOCUMENTO,
+                                P.TIPO_AGENTE,
+                                B.IMPORTE_COMISION AS IMPORTE,
+                                (SELECT SUM(IMPORTE_COMISION)
+                                	FROM :TEMP_BASES_112_03_RG S
+                                	WHERE S.POSITIONSEQ = B.POSITIONSEQ
+                                	AND ((RIGHT(P.EARNINGGROUPID,3) = 'AUT' AND S.AUTOLIQUIDA = 1)
+											OR
+										 (RIGHT(P.EARNINGGROUPID,3) <> 'AUT' AND IFNULL(S.AUTOLIQUIDA,0) = 0))
+                                ) AS SUMA_IMPORTE,
+                                NULL AS TIPO_REPARTO,
+                                0 AS NUM_TRAMO,
+                                NULL AS REPARTO_TIPO_BASE,
+                                NULL AS REPARTO_PORCENTAJE,
+                                POLIZA_FISICA,
+                                POLIZA_CORREGIDA,
+                                PRIMA_CORREGIDA,
+                                PRIMA_NETA,
+                                PRIMA_NETA_ANUAL,
+                                PRIMA_COMIS_S4 PRIMA_COMIS,
+                                NULL AS COEF_TIPO_BASE,
+                                NULL AS COEF_CORRECTOR,
+                                COD_AGENTE,
+                                P.TIPO_LIQ
+    					FROM :TEMP_PAGOS_DIRECTOS_112_03_RG P
+    					INNER JOIN :TEMP_BASES_112_03_RG B ON P.POSITIONSEQ = B.POSITIONSEQ
+    					--INNER JOIN :BASES_TOTAL_IMPORTE_112_03_RG BT ON BT.POSITIONSEQ = B.POSITIONSEQ
+    					WHERE 
+    					-- TIPO CONCEPTO: IMPORTE_COMISION
+    					B.IMPORTE_COMISION <> 0
+    					AND NOT EXISTS (
+    					    SELECT 1 
+    					    FROM EXT.FINAL_REPEXT_FILE_TEST X 
+    					    WHERE X.POS_PRIN       = P.POS_PRIN
+    					      AND X.PERIODSEQ      = P.PERIODSEQ
+    					      AND X.EARNINGCODEID  = P.EARNINGCODEID
+    					      AND X.EARNINGGROUPID = P.EARNINGGROUPID
+    					      AND X.TIPO_DOCUMENTO = P.TIPO_DOCUMENTO
+    					      AND X.ORDERID        = B.ORDERID
+    					      AND X.LINENUMBER     = B.LINENUMBER
+    					      AND X.SUBLINENUMBER  = B.SUBLINENUMBER
+    					      AND X.EVENTTYPEID    = B.EVENTTYPEID
+    					)
+    					AND (
+    	    				(RIGHT(P.EARNINGGROUPID,3) = 'AUT' AND B.AUTOLIQUIDA = 1)
+	        				OR
+	        				(RIGHT(P.EARNINGGROUPID,3) <> 'AUT' AND IFNULL(B.AUTOLIQUIDA,0) = 0)
+    					);
+    					
+    	CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_FINAL_PAGOS_BASES_112_03_RG: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+    	
+    	--LIQUIDACIÓN COMPLEMENTARIA
+		IF v_num_post > 1 AND i_tipo_reparto = 'CIERRE' THEN
+		
+			TEMP_PAGOS_DIRECTOS_112_03_RG_LC = SELECT SUM(IMPORTE) SUMA_PAGOS,PERIODSEQ,POS_PRIN,EARNINGGROUPID,EARNINGCODEID,DEPOSITO 
+				FROM :TEMP_FINAL_PAGOS_BASES_112_03_RG 
+				WHERE TIPO_LIQ IN ('CIERRE','LIQ')
+				GROUP BY PERIODSEQ,POS_PRIN,EARNINGGROUPID,EARNINGCODEID,DEPOSITO;
+		
+			INSERT INTO EXT.FINAL_REPEXT_FILE_TEST("TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+		        ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+		        ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+		        ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ")
+		    SELECT "TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+		        ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE"*(-1),"TIPO_AGENTE","TIPO_DOCUMENTO",TF."EARNINGGROUPID"
+		        ,TF."EARNINGCODEID",TF.SUMA_IMPORTE,"DEPOSITSEQ",TF."DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+		        ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF",TF."POS_PRIN","POSITIONNAME","PERIODO",TF."PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ"
+		    FROM :TEMP_FINAL_PAGOS_BASES_112_03_RG TF 
+		    	INNER JOIN :TEMP_PAGOS_DIRECTOS_112_03_RG_LC TLC ON TF.PERIODSEQ = TLC.PERIODSEQ AND TF.POS_PRIN = TLC.POS_PRIN 
+		    	AND TF.EARNINGGROUPID = TLC.EARNINGGROUPID AND TF.EARNINGCODEID = TLC. EARNINGCODEID AND TF.DEPOSITO = TLC.DEPOSITO
+		    	AND 1 = (CASE WHEN SUMA_PAGOS <> SUMA_IMPORTE THEN 1 END); 
+		 END IF;
+    	-- FIN LIQUIDACIÓN COMPLEMENTARIA
+    	
+    	UPDATE F
+    	SET ESTADO_REPARTO = CASE 
+    		WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 2
+			WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 3
+			ELSE 4 
+		END
+		FROM EXT.FINAL_REPEXT_PAGOS_FILE_TEST F
+		INNER JOIN :TEMP_FINAL_PAGOS_BASES_112_03_RG T ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+		AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID;
+		
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_PAGOS_FILE_TEST ESTADOS ACTUALIZADOS: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+		
+    	
+		UPDATE F
+            SET ESTADO_REPARTO = CASE 
+    				WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 2
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 3
+					ELSE 4 
+				END --REPARTO CORRECTO
+			FROM :TEMP_REPEXT_PAGOS_REPARTO_FILE F
+			INNER JOIN :TEMP_FINAL_PAGOS_BASES_112_03_RG T ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+			AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+	--		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID
+			WHERE 1 = (CASE 
+    				WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 1
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+					ELSE 0 
+				END)
+			;
+        CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_REPEXT_PAGOS_REPARTO_FILE ESTADOS ACTUALIZADOS: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');   
+	
+		INSERT INTO EXT.FINAL_REPEXT_FILE_TEST("TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+            ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+            ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+            ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ")
+        SELECT "TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+            ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+            ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+            ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ"
+        FROM :TEMP_FINAL_PAGOS_BASES_112_03_RG
+        WHERE 1 = (
+        	CASE 
+        		WHEN (IMPORTE_PAGO - IFNULL(SUMA_IMPORTE,0)) = 0 THEN 1
+    			WHEN (IMPORTE_PAGO - IFNULL(SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+    		ELSE 0 
+    		END);
+
+ 		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_FILE_TEST INSERTADOS: ' ||::ROWCOUNT, v_log_count, v_idproceso, 'info');	      
+ --------------------------------------------------------------------------------------------------------
+
+		TEMP_FINAL_PAGOS_BASES_112_03_RG_DIF =
+			SELECT T.PERIODSEQ,T.POS_PRIN,T.TIPO_DOCUMENTO,T.DEPOSITSEQ,T.EARNINGCODEID,T.EARNINGGROUPID,T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0) AS DIF,
+				T.ORDERID,T.LINENUMBER,T.SUBLINENUMBER,T.EVENTTYPEID, T.COMPENSATIONDATE,
+				ROW_NUMBER() OVER(
+                      		PARTITION BY T.PERIODSEQ,T.POS_PRIN,T.TIPO_DOCUMENTO,T.DEPOSITSEQ,T.EARNINGCODEID,T.EARNINGGROUPID
+                      		--ORDER BY T.ORDERID
+                      ) AS RN_TRX
+			FROM :TEMP_FINAL_PAGOS_BASES_112_03_RG T
+			WHERE 1 = (CASE 
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 0
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+					ELSE 0 
+				END)
+		;
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_FINAL_PAGOS_BASES_112_03_RG_DIF: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+		UPDATE F
+    	SET F.IMPORTE = F.IMPORTE + T.DIF
+    	FROM EXT.FINAL_REPEXT_FILE_TEST F
+    	INNER JOIN :TEMP_FINAL_PAGOS_BASES_112_03_RG_DIF T  ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+		AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID
+		AND F.ORDERID = T.ORDERID AND F.LINENUMBER = T.LINENUMBER AND F.SUBLINENUMBER = T.SUBLINENUMBER AND F.EVENTTYPEID = T.EVENTTYPEID AND F.COMPENSATIONDATE = T.COMPENSATIONDATE
+		AND T.RN_TRX = 1
+		;
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_FILE_TEST IMPORTE_DIF: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+ 
+     
+        ---------------------------------------------------------------------------------------------------
+		-- 113-01	
+		---------------------------------------------------------------------------------------------------
+		--PAGOS
+		TEMP_PAGOS_DIRECTOS_113_01 = SELECT *
+    		FROM :TEMP_PAGOS_DIRECTOS
+    		WHERE SUBSTRING(EARNINGGROUPID,7,5) = '01'
+    		AND EARNINGCODEID = '113';
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_PAGOS_DIRECTOS_113_01: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+		--BASES
+		IF i_tipo_reparto = 'CIERRE' THEN
+			TEMP_BASES_113_01 = SELECT * 
+    			FROM EXT.FINAL_BASES_REPARTO_POLIZA_FILE B
+    			WHERE PERIODSEQ = i_periodSeq
+    			AND EVENTTYPEID = '16';
+    			
+    		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_BASES_113_01: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+    	ELSE 
+    		TEMP_BASES_113_01 = SELECT * 
+    			FROM EXT.FINAL_BASES_REPARTO_POLIZA_FILE_NUEVA_BASE_REPARTO B
+    			WHERE PERIODSEQ = v_periodSeqAnterior
+    			AND EVENTTYPEID = '16';
+    		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_BASES_113_01 (BALANCE): ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+    		
+    		SELECT 'TEMP_BASES_113_01',* FROM :TEMP_BASES_113_01 WHERE POSITIONNAME = '04606715E0000';
+    	END IF;
+    	
+   -- 	--BASES_TOTAL_IMPORTE
+   -- 	BASES_TOTAL_IMPORTE_113_01 = 
+			-- SELECT POSITIONSEQ, SUM(IMPORTE_COMISION) AS SUMA_IMPORTE
+			-- FROM :TEMP_BASES_113_01
+			-- WHERE IMPORTE_COMISION <> 0
+			-- GROUP BY POSITIONSEQ;
+			-- SELECT 'BASES_TOTAL_IMPORTE_113_01',POSITIONSEQ, SUM(IMPORTE_COMISION) AS SUMA_IMPORTE
+			-- FROM :TEMP_BASES_113_01
+			-- WHERE IMPORTE_COMISION <> 0
+			-- GROUP BY POSITIONSEQ;
+			
+			-- SELECT 'ZZZZZ',*--SUM(IMPORTE_COMISION)
+   --                             	FROM :TEMP_BASES_113_01 S
+   --                             	WHERE S.POSITIONSEQ = 4785074604176708
+   --                             	ORDER BY CODIGO_POLIZA
+   --                             	;
+    	--FINAL
+    	TEMP_FINAL_PAGOS_BASES_113_01 = SELECT P.PARTICIPANTSEQ,
+                                P.POSITIONSEQ,
+                                P.PERIODSEQ,
+                                :v_periodName AS PERIODO,
+                                P.POS_CALLIDUS POSITIONNAME,
+                                P.POS_PRIN,
+                                P.NIF,
+                                P.MANAGER_POS_PRIN,
+                                ORDERID,
+                                LINENUMBER,
+                                SUBLINENUMBER,
+                                EVENTTYPEID,
+                                PRODUCTID,
+                                CODIGO_POLIZA,
+                                COMPENSATIONDATE,
+                                ESTADO,
+                                P.PROGRAMA,
+                                P.TIPO_PAGO,
+                                P.DEPOSITO,
+                                P.DEPOSITSEQ,
+                                P.IMPORTE IMPORTE_PAGO,
+                                P.EARNINGCODEID,
+                                P.EARNINGGROUPID,
+                                P.TIPO_DOCUMENTO,
+                                P.TIPO_AGENTE,
+                                B.IMPORTE_COMISION AS IMPORTE,
+                                -- BT.SUMA_IMPORTE AS SUMA_IMPORTE,
+                                (SELECT SUM(IMPORTE_COMISION)
+                                	FROM :TEMP_BASES_113_01 S
+                                	WHERE S.POSITIONSEQ = B.POSITIONSEQ
+           --                     	AND ((RIGHT(P.EARNINGGROUPID,3) = 'AUT' AND S.AUTOLIQUIDA = 1)
+											-- OR
+										 --(RIGHT(P.EARNINGGROUPID,3) <> 'AUT' AND IFNULL(S.AUTOLIQUIDA,0) = 0))
+                                ) AS SUMA_IMPORTE,
+                                NULL AS TIPO_REPARTO,
+                                0 AS NUM_TRAMO,
+                                NULL AS REPARTO_TIPO_BASE,
+                                NULL AS REPARTO_PORCENTAJE,
+                                POLIZA_FISICA,
+                                POLIZA_CORREGIDA,
+                                PRIMA_CORREGIDA,
+                                PRIMA_NETA,
+                                PRIMA_NETA_ANUAL,
+                                PRIMA_COMIS_S4 PRIMA_COMIS,
+                                NULL AS COEF_TIPO_BASE,
+                                NULL AS COEF_CORRECTOR,
+                                COD_AGENTE,
+                                P.TIPO_LIQ
+    					FROM :TEMP_PAGOS_DIRECTOS_113_01 P
+    					INNER JOIN :TEMP_BASES_113_01 B ON P.POSITIONSEQ = B.POSITIONSEQ
+    					-- INNER JOIN :BASES_TOTAL_IMPORTE_113_01 BT ON BT.POSITIONSEQ = B.POSITIONSEQ
+    					WHERE 
+    					-- TIPO CONCEPTO: IMPORTE_COMISION
+    					B.IMPORTE_COMISION <> 0
+    					AND NOT EXISTS (
+    					    SELECT 1 
+    					    FROM EXT.FINAL_REPEXT_FILE_TEST X 
+    					    WHERE X.POS_PRIN       = P.POS_PRIN
+    					      AND X.PERIODSEQ      = P.PERIODSEQ
+    					      AND X.EARNINGCODEID  = P.EARNINGCODEID
+    					      AND X.EARNINGGROUPID = P.EARNINGGROUPID
+    					      AND X.TIPO_DOCUMENTO = P.TIPO_DOCUMENTO
+    					      AND X.ORDERID        = B.ORDERID
+    					      AND X.LINENUMBER     = B.LINENUMBER
+    					      AND X.SUBLINENUMBER  = B.SUBLINENUMBER
+    					      AND X.EVENTTYPEID    = B.EVENTTYPEID
+    					);
+    					
+    	CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_FINAL_PAGOS_BASES_113_01: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+    	
+    	--LIQUIDACIÓN COMPLEMENTARIA
+		IF v_num_post > 1 AND i_tipo_reparto = 'CIERRE' THEN
+		
+			TEMP_PAGOS_DIRECTOS_113_01_LC = SELECT SUM(IMPORTE) SUMA_PAGOS,PERIODSEQ,POS_PRIN,EARNINGGROUPID,EARNINGCODEID,DEPOSITO 
+				FROM :TEMP_FINAL_PAGOS_BASES_113_01
+				WHERE TIPO_LIQ IN ('CIERRE','LIQ')
+				GROUP BY PERIODSEQ,POS_PRIN,EARNINGGROUPID,EARNINGCODEID,DEPOSITO;
+		
+			INSERT INTO EXT.FINAL_REPEXT_FILE_TEST("TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+		        ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+		        ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+		        ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ")
+		    SELECT "TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+		        ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE"*(-1),"TIPO_AGENTE","TIPO_DOCUMENTO",TF."EARNINGGROUPID"
+		        ,TF."EARNINGCODEID",TF.SUMA_IMPORTE,"DEPOSITSEQ",TF."DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+		        ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF",TF."POS_PRIN","POSITIONNAME","PERIODO",TF."PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ"
+		    FROM :TEMP_FINAL_PAGOS_BASES_113_01 TF 
+		    	INNER JOIN :TEMP_PAGOS_DIRECTOS_113_01_LC TLC ON TF.PERIODSEQ = TLC.PERIODSEQ AND TF.POS_PRIN = TLC.POS_PRIN 
+		    	AND TF.EARNINGGROUPID = TLC.EARNINGGROUPID AND TF.EARNINGCODEID = TLC. EARNINGCODEID AND TF.DEPOSITO = TLC.DEPOSITO
+		    	AND 1 = (CASE WHEN SUMA_PAGOS <> SUMA_IMPORTE THEN 1 END); 
+		 END IF;
+    	-- FIN LIQUIDACIÓN COMPLEMENTARIA
+    	
+    	UPDATE F
+    	SET ESTADO_REPARTO = CASE 
+    		WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 2
+			WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 3
+			ELSE 4
+		END
+		FROM EXT.FINAL_REPEXT_PAGOS_FILE_TEST F
+		INNER JOIN :TEMP_FINAL_PAGOS_BASES_113_01 T ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+		AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID;
+		-- SELECT '***',T.IMPORTE_PAGO IPAGO,IFNULL(T.SUMA_IMPORTE,0) SIMPORTE,*
+		-- FROM EXT.FINAL_REPEXT_PAGOS_FILE_TEST F
+		-- INNER JOIN :TEMP_FINAL_PAGOS_BASES_113_01 T ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+		-- AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+		-- AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID
+		-- ORDER BY T.IMPORTE DESC;
+		
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_PAGOS_FILE_TEST ESTADOS ACTUALIZADOS: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+		
+		UPDATE F
+            SET ESTADO_REPARTO = CASE 
+    				WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 2
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 3
+					ELSE 4
+				END --REPARTO CORRECTO
+			FROM :TEMP_REPEXT_PAGOS_REPARTO_FILE F
+			INNER JOIN :TEMP_FINAL_PAGOS_BASES_113_01 T ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+			AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+			WHERE 1 = (CASE 
+    				WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 1
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+					ELSE 0 
+				END)
+	--		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID
+			;
+        CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_REPEXT_PAGOS_REPARTO_FILE ESTADOS ACTUALIZADOS: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');   
+                                   
+		
+		INSERT INTO EXT.FINAL_REPEXT_FILE_TEST("TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+            ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+            ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+            ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ")
+        SELECT "TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+            ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+            ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+            ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ"
+        FROM :TEMP_FINAL_PAGOS_BASES_113_01
+        WHERE 1 = (
+        	CASE 
+        		WHEN (IMPORTE_PAGO - IFNULL(SUMA_IMPORTE,0)) = 0 THEN 1
+    			WHEN (IMPORTE_PAGO - IFNULL(SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+    		ELSE 0 
+    		END);
+
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_FILE_TEST INSERTADOS: ' ||::ROWCOUNT, v_log_count, v_idproceso, 'info');	
+		---------------------------------------------------------------------------------------------------
+
+		TEMP_FINAL_PAGOS_BASES_113_01_DIF =
+			SELECT T.PERIODSEQ,T.POS_PRIN,T.TIPO_DOCUMENTO,T.DEPOSITSEQ,T.EARNINGCODEID,T.EARNINGGROUPID,T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0) AS DIF,
+				T.ORDERID,T.LINENUMBER,T.SUBLINENUMBER,T.EVENTTYPEID, T.COMPENSATIONDATE,
+				ROW_NUMBER() OVER(
+                      		PARTITION BY T.PERIODSEQ,T.POS_PRIN,T.TIPO_DOCUMENTO,T.DEPOSITSEQ,T.EARNINGCODEID,T.EARNINGGROUPID
+                      		--ORDER BY T.ORDERID
+                      ) AS RN_TRX
+			FROM :TEMP_FINAL_PAGOS_BASES_113_01 T
+			WHERE 1 = (CASE 
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 0
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+					ELSE 0 
+				END)
+		;
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_FINAL_PAGOS_BASES_113_01_DIF: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+		UPDATE F
+    	SET F.IMPORTE = F.IMPORTE + T.DIF
+    	FROM EXT.FINAL_REPEXT_FILE_TEST F
+    	INNER JOIN :TEMP_FINAL_PAGOS_BASES_113_01_DIF T  ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+		AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID
+		AND F.ORDERID = T.ORDERID AND F.LINENUMBER = T.LINENUMBER AND F.SUBLINENUMBER = T.SUBLINENUMBER AND F.EVENTTYPEID = T.EVENTTYPEID AND F.COMPENSATIONDATE = T.COMPENSATIONDATE
+		AND T.RN_TRX = 1
+		;
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_FILE_TEST IMPORTE_DIF: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+		
+        ---------------------------------------------------------------------------------------------------
+		-- 113-01_RT	
+		---------------------------------------------------------------------------------------------------
+		--PAGOS
+		TEMP_PAGOS_DIRECTOS_113_01_RT = SELECT *
+    		FROM :TEMP_PAGOS_DIRECTOS
+    		WHERE SUBSTRING(EARNINGGROUPID,7,5) = '01-RT'
+    		AND EARNINGCODEID = '113';
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_PAGOS_DIRECTOS_113_01_RT: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+		--BASES
+		IF i_tipo_reparto = 'CIERRE' THEN
+			TEMP_BASES_113_01_RT = SELECT * 
+	    		FROM EXT.FINAL_BASES_REPARTO_POLIZA_FILE B
+	    		WHERE PERIODSEQ = i_periodSeq
+	    		-- EARNINGGROUPID = '01-RT'
+	    		AND PRODUCTID LIKE '012%'
+	    		-- EARNINGCODEID = '113'
+	    		AND EVENTTYPEID = '16';
+	    		
+	    	CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_BASES_113_01_RT: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+	    ELSE
+	    	TEMP_BASES_113_01_RT = SELECT * 
+	    		FROM EXT.FINAL_BASES_REPARTO_POLIZA_FILE_NUEVA_BASE_REPARTO B
+	    		WHERE PERIODSEQ = v_periodSeqAnterior
+	    		-- EARNINGGROUPID = '01-RT'
+	    		AND PRODUCTID LIKE '012%'
+	    		-- EARNINGCODEID = '113'
+	    		AND EVENTTYPEID = '16';
+	    		
+	    	CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_BASES_113_01_RT (BALANCE): ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+	    END IF;
+    	
+    	--BASES_TOTAL_IMPORTE
+    	BASES_TOTAL_IMPORTE_113_01_RT = 
+			SELECT POSITIONSEQ, SUM(IMPORTE_COMISION) AS SUMA_IMPORTE
+			FROM :TEMP_BASES_113_01_RT
+			WHERE IMPORTE_COMISION <> 0
+			GROUP BY POSITIONSEQ;
+			
+    	--FINAL
+    	TEMP_FINAL_PAGOS_BASES_113_01_RT = SELECT P.PARTICIPANTSEQ,
+                                P.POSITIONSEQ,
+                                P.PERIODSEQ,
+                                :v_periodName AS PERIODO,
+                                P.POS_CALLIDUS POSITIONNAME,
+                                P.POS_PRIN,
+                                P.NIF,
+                                P.MANAGER_POS_PRIN,
+                                ORDERID,
+                                LINENUMBER,
+                                SUBLINENUMBER,
+                                EVENTTYPEID,
+                                PRODUCTID,
+                                CODIGO_POLIZA,
+                                COMPENSATIONDATE,
+                                ESTADO,
+                                P.PROGRAMA,
+                                P.TIPO_PAGO,
+                                P.DEPOSITO,
+                                P.DEPOSITSEQ,
+                                P.IMPORTE IMPORTE_PAGO,
+                                P.EARNINGCODEID,
+                                P.EARNINGGROUPID,
+                                P.TIPO_DOCUMENTO,
+                                P.TIPO_AGENTE,
+                                B.IMPORTE_COMISION AS IMPORTE,
+                                BT.SUMA_IMPORTE AS SUMA_IMPORTE,
+                                NULL AS TIPO_REPARTO,
+                                0 AS NUM_TRAMO,
+                                NULL AS REPARTO_TIPO_BASE,
+                                NULL AS REPARTO_PORCENTAJE,
+                                POLIZA_FISICA,
+                                POLIZA_CORREGIDA,
+                                PRIMA_CORREGIDA,
+                                PRIMA_NETA,
+                                PRIMA_NETA_ANUAL,
+                                PRIMA_COMIS_S4 PRIMA_COMIS,
+                                NULL AS COEF_TIPO_BASE,
+                                NULL AS COEF_CORRECTOR,
+                                COD_AGENTE,
+                                P.TIPO_LIQ
+    					FROM :TEMP_PAGOS_DIRECTOS_113_01_RT P
+    					INNER JOIN :TEMP_BASES_113_01_RT B ON P.POSITIONSEQ = B.POSITIONSEQ
+    					INNER JOIN :BASES_TOTAL_IMPORTE_113_01_RT BT ON BT.POSITIONSEQ = B.POSITIONSEQ
+    					WHERE 
+    					-- TIPO CONCEPTO: IMPORTE_COMISION
+    					B.IMPORTE_COMISION <> 0
+    					AND NOT EXISTS (
+    					    SELECT 1 
+    					    FROM EXT.FINAL_REPEXT_FILE_TEST X 
+    					    WHERE X.POS_PRIN       = P.POS_PRIN
+    					      AND X.PERIODSEQ      = P.PERIODSEQ
+    					      AND X.EARNINGCODEID  = P.EARNINGCODEID
+    					      AND X.EARNINGGROUPID = P.EARNINGGROUPID
+    					      AND X.TIPO_DOCUMENTO = P.TIPO_DOCUMENTO
+    					      AND X.ORDERID        = B.ORDERID
+    					      AND X.LINENUMBER     = B.LINENUMBER
+    					      AND X.SUBLINENUMBER  = B.SUBLINENUMBER
+    					      AND X.EVENTTYPEID    = B.EVENTTYPEID
+    					);
+    					
+    	CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_FINAL_PAGOS_BASES_113_01_RT: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+    	
+    	--LIQUIDACIÓN COMPLEMENTARIA
+		IF v_num_post > 1 AND i_tipo_reparto = 'CIERRE' THEN
+		
+			TEMP_PAGOS_DIRECTOS_113_01_RT_LC = SELECT SUM(IMPORTE) SUMA_PAGOS,PERIODSEQ,POS_PRIN,EARNINGGROUPID,EARNINGCODEID,DEPOSITO 
+				FROM :TEMP_FINAL_PAGOS_BASES_113_01_RT
+				WHERE TIPO_LIQ IN ('CIERRE','LIQ')
+				GROUP BY PERIODSEQ,POS_PRIN,EARNINGGROUPID,EARNINGCODEID,DEPOSITO;
+		
+			INSERT INTO EXT.FINAL_REPEXT_FILE_TEST("TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+		        ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+		        ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+		        ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ")
+		    SELECT "TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+		        ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE"*(-1),"TIPO_AGENTE","TIPO_DOCUMENTO",TF."EARNINGGROUPID"
+		        ,TF."EARNINGCODEID",TF.SUMA_IMPORTE,"DEPOSITSEQ",TF."DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+		        ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF",TF."POS_PRIN","POSITIONNAME","PERIODO",TF."PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ"
+		    FROM :TEMP_FINAL_PAGOS_BASES_113_01_RT TF 
+		    	INNER JOIN :TEMP_PAGOS_DIRECTOS_113_01_RT_LC TLC ON TF.PERIODSEQ = TLC.PERIODSEQ AND TF.POS_PRIN = TLC.POS_PRIN 
+		    	AND TF.EARNINGGROUPID = TLC.EARNINGGROUPID AND TF.EARNINGCODEID = TLC. EARNINGCODEID AND TF.DEPOSITO = TLC.DEPOSITO
+		    	AND 1 = (CASE WHEN SUMA_PAGOS <> SUMA_IMPORTE THEN 1 END); 
+		 END IF;
+    	-- FIN LIQUIDACIÓN COMPLEMENTARIA
+    	
+    	UPDATE F
+    	SET ESTADO_REPARTO = CASE 
+    		WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 2
+			WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 3
+			ELSE 4 
+		END
+		FROM EXT.FINAL_REPEXT_PAGOS_FILE_TEST F
+		INNER JOIN :TEMP_FINAL_PAGOS_BASES_113_01_RT T ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+		AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID;
+		
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_PAGOS_FILE_TEST ESTADOS ACTUALIZADOS: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+		
+		UPDATE F
+            SET ESTADO_REPARTO = CASE 
+    				WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 2
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 3
+					ELSE 4 
+				END --REPARTO CORRECTO
+			FROM :TEMP_REPEXT_PAGOS_REPARTO_FILE F
+			INNER JOIN :TEMP_FINAL_PAGOS_BASES_113_01_RT T ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+			AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+			WHERE 1 = (CASE 
+    				WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 1
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+					ELSE 0 
+				END)
+	--		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID
+			;
+        CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_REPEXT_PAGOS_REPARTO_FILE ESTADOS ACTUALIZADOS: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');   
+                                   
+		
+		INSERT INTO EXT.FINAL_REPEXT_FILE_TEST("TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+            ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+            ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+            ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ")
+        SELECT "TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+            ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+            ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+            ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ"
+        FROM :TEMP_FINAL_PAGOS_BASES_113_01_RT
+        WHERE 1 = (
+        	CASE 
+        		WHEN (IMPORTE_PAGO - IFNULL(SUMA_IMPORTE,0)) = 0 THEN 1
+    			WHEN (IMPORTE_PAGO - IFNULL(SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+    		ELSE 0 
+    		END);
+
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_FILE_TEST INSERTADOS: ' ||::ROWCOUNT, v_log_count, v_idproceso, 'info');	
+		---------------------------------------------------------------------------------------------------
+
+		TEMP_FINAL_PAGOS_BASES_113_01_RT_DIF =
+			SELECT T.PERIODSEQ,T.POS_PRIN,T.TIPO_DOCUMENTO,T.DEPOSITSEQ,T.EARNINGCODEID,T.EARNINGGROUPID,T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0) AS DIF,
+				T.ORDERID,T.LINENUMBER,T.SUBLINENUMBER,T.EVENTTYPEID, T.COMPENSATIONDATE,
+				ROW_NUMBER() OVER(
+                      		PARTITION BY T.PERIODSEQ,T.POS_PRIN,T.TIPO_DOCUMENTO,T.DEPOSITSEQ,T.EARNINGCODEID,T.EARNINGGROUPID
+                      		--ORDER BY T.ORDERID
+                      ) AS RN_TRX
+			FROM :TEMP_FINAL_PAGOS_BASES_113_01_RT T
+			WHERE 1 = (CASE 
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 0
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+					ELSE 0 
+				END)
+		;
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_FINAL_PAGOS_BASES_113_01_RT_DIF: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+		UPDATE F
+    	SET F.IMPORTE = F.IMPORTE + T.DIF
+    	FROM EXT.FINAL_REPEXT_FILE_TEST F
+    	INNER JOIN :TEMP_FINAL_PAGOS_BASES_113_01_RT_DIF T  ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+		AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID
+		AND F.ORDERID = T.ORDERID AND F.LINENUMBER = T.LINENUMBER AND F.SUBLINENUMBER = T.SUBLINENUMBER AND F.EVENTTYPEID = T.EVENTTYPEID AND F.COMPENSATIONDATE = T.COMPENSATIONDATE
+		AND T.RN_TRX = 1
+		;
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_FILE_TEST IMPORTE_DIF: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+		
+		
+				
+		
+		---------------------------------------------------------------------------------------------------
+		-- 113-01_RG	
+		---------------------------------------------------------------------------------------------------
+		--PAGOS
+		TEMP_PAGOS_DIRECTOS_113_01_RG = SELECT *
+    		FROM :TEMP_PAGOS_DIRECTOS
+    		WHERE SUBSTRING(EARNINGGROUPID,7,5) = '01-RG'
+    		AND EARNINGCODEID = '113';
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_PAGOS_DIRECTOS_113_01_RG: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+		--BASES
+		IF i_tipo_reparto = 'CIERRE' THEN
+			TEMP_BASES_113_01_RG = SELECT * 
+	    		FROM EXT.FINAL_BASES_REPARTO_POLIZA_FILE B
+	    		WHERE PERIODSEQ = i_periodSeq
+	    		-- EARNINGGROUPID = '01-RG'
+	    		AND PRODUCTID LIKE '01%' AND PRODUCTID NOT LIKE '012%'
+	    		-- EARNINGCODEID = '113'
+	    		/*AND (EVENTTYPEID IN ('71','65','66','72','42')
+	    			   OR (EVENTTYPEID = '43' AND SALESTRANSACTIONSEQ IN (
+	    		        SELECT T.SALESTRANSACTIONSEQ FROM EXT.TEMP_REPEXT_TXN_FILE T
+	    		        WHERE T.SALESTRANSACTIONSEQ = B.SALESTRANSACTIONSEQ
+	    		        AND T.FECHA_EFECTO > ADD_MONTHS(T.FECHA_VTO_RECIBO,-12)
+	    		    )))*/
+	            AND EVENTTYPEID = '16';
+	            
+	    	CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_BASES_113_01_RG: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+	    ELSE
+	    	TEMP_BASES_113_01_RG = SELECT * 
+	    		FROM EXT.FINAL_BASES_REPARTO_POLIZA_FILE_NUEVA_BASE_REPARTO B
+	    		WHERE PERIODSEQ = v_periodSeqAnterior
+	    		-- EARNINGGROUPID = '01-RG'
+	    		AND PRODUCTID LIKE '01%' AND PRODUCTID NOT LIKE '012%'
+	    		-- EARNINGCODEID = '113'
+	    		/*AND (EVENTTYPEID IN ('71','65','66','72','42')
+	    			   OR (EVENTTYPEID = '43' AND SALESTRANSACTIONSEQ IN (
+	    		        SELECT T.SALESTRANSACTIONSEQ FROM EXT.TEMP_REPEXT_TXN_FILE T
+	    		        WHERE T.SALESTRANSACTIONSEQ = B.SALESTRANSACTIONSEQ
+	    		        AND T.FECHA_EFECTO > ADD_MONTHS(T.FECHA_VTO_RECIBO,-12)
+	    		    )))*/
+	            AND EVENTTYPEID = '16';
+	        CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_BASES_113_01_RG (BALANCE): ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+	    END IF;
+	            
+    	
+    	
+    	--BASES_TOTAL_IMPORTE
+    	BASES_TOTAL_IMPORTE_113_01_RG = 
+			SELECT POSITIONSEQ, SUM(IMPORTE_COMISION) AS SUMA_IMPORTE
+			FROM :TEMP_BASES_113_01_RG
+			WHERE IMPORTE_COMISION <> 0
+			GROUP BY POSITIONSEQ;
+			
+    	--FINAL
+    	TEMP_FINAL_PAGOS_BASES_113_01_RG = SELECT P.PARTICIPANTSEQ,
+                                P.POSITIONSEQ,
+                                P.PERIODSEQ,
+                                :v_periodName AS PERIODO,
+                                P.POS_CALLIDUS POSITIONNAME,
+                                P.POS_PRIN,
+                                P.NIF,
+                                P.MANAGER_POS_PRIN,
+                                ORDERID,
+                                LINENUMBER,
+                                SUBLINENUMBER,
+                                EVENTTYPEID,
+                                PRODUCTID,
+                                CODIGO_POLIZA,
+                                COMPENSATIONDATE,
+                                ESTADO,
+                                P.PROGRAMA,
+                                P.TIPO_PAGO,
+                                P.DEPOSITO,
+                                P.DEPOSITSEQ,
+                                P.IMPORTE IMPORTE_PAGO,
+                                P.EARNINGCODEID,
+                                P.EARNINGGROUPID,
+                                P.TIPO_DOCUMENTO,
+                                P.TIPO_AGENTE,
+                                B.IMPORTE_COMISION AS IMPORTE,
+                                BT.SUMA_IMPORTE AS SUMA_IMPORTE,
+                                NULL AS TIPO_REPARTO,
+                                0 AS NUM_TRAMO,
+                                NULL AS REPARTO_TIPO_BASE,
+                                NULL AS REPARTO_PORCENTAJE,
+                                POLIZA_FISICA,
+                                POLIZA_CORREGIDA,
+                                PRIMA_CORREGIDA,
+                                PRIMA_NETA,
+                                PRIMA_NETA_ANUAL,
+                                PRIMA_COMIS_S4 PRIMA_COMIS,
+                                NULL AS COEF_TIPO_BASE,
+                                NULL AS COEF_CORRECTOR,
+                                COD_AGENTE,
+                                P.TIPO_LIQ
+    					FROM :TEMP_PAGOS_DIRECTOS_113_01_RG P
+    					INNER JOIN :TEMP_BASES_113_01_RG B ON P.POSITIONSEQ = B.POSITIONSEQ
+    					INNER JOIN :BASES_TOTAL_IMPORTE_113_01_RG BT ON BT.POSITIONSEQ = B.POSITIONSEQ
+    					WHERE 
+    					-- TIPO CONCEPTO: IMPORTE_COMISION
+    					B.IMPORTE_COMISION <> 0
+    					AND NOT EXISTS (
+    					    SELECT 1 
+    					    FROM EXT.FINAL_REPEXT_FILE_TEST X 
+    					    WHERE X.POS_PRIN       = P.POS_PRIN
+    					      AND X.PERIODSEQ      = P.PERIODSEQ
+    					      AND X.EARNINGCODEID  = P.EARNINGCODEID
+    					      AND X.EARNINGGROUPID = P.EARNINGGROUPID
+    					      AND X.TIPO_DOCUMENTO = P.TIPO_DOCUMENTO
+    					      AND X.ORDERID        = B.ORDERID
+    					      AND X.LINENUMBER     = B.LINENUMBER
+    					      AND X.SUBLINENUMBER  = B.SUBLINENUMBER
+    					      AND X.EVENTTYPEID    = B.EVENTTYPEID
+    					);
+    					
+    	CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_FINAL_PAGOS_BASES_113_01_RG: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+    	
+    	--LIQUIDACIÓN COMPLEMENTARIA
+		IF v_num_post > 1 AND i_tipo_reparto = 'CIERRE' THEN
+		
+			TEMP_PAGOS_DIRECTOS_113_01_RG_LC = SELECT SUM(IMPORTE) SUMA_PAGOS,PERIODSEQ,POS_PRIN,EARNINGGROUPID,EARNINGCODEID,DEPOSITO 
+				FROM :TEMP_FINAL_PAGOS_BASES_113_01_RG
+				WHERE TIPO_LIQ IN ('CIERRE','LIQ')
+				GROUP BY PERIODSEQ,POS_PRIN,EARNINGGROUPID,EARNINGCODEID,DEPOSITO;
+		
+			INSERT INTO EXT.FINAL_REPEXT_FILE_TEST("TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+		        ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+		        ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+		        ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ")
+		    SELECT "TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+		        ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE"*(-1),"TIPO_AGENTE","TIPO_DOCUMENTO",TF."EARNINGGROUPID"
+		        ,TF."EARNINGCODEID",TF.SUMA_IMPORTE,"DEPOSITSEQ",TF."DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+		        ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF",TF."POS_PRIN","POSITIONNAME","PERIODO",TF."PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ"
+		    FROM :TEMP_FINAL_PAGOS_BASES_113_01_RG TF 
+		    	INNER JOIN :TEMP_PAGOS_DIRECTOS_113_01_RG_LC TLC ON TF.PERIODSEQ = TLC.PERIODSEQ AND TF.POS_PRIN = TLC.POS_PRIN 
+		    	AND TF.EARNINGGROUPID = TLC.EARNINGGROUPID AND TF.EARNINGCODEID = TLC. EARNINGCODEID AND TF.DEPOSITO = TLC.DEPOSITO
+		    	AND 1 = (CASE WHEN SUMA_PAGOS <> SUMA_IMPORTE THEN 1 END); 
+		 END IF;
+    	-- FIN LIQUIDACIÓN COMPLEMENTARIA
+    	
+    	UPDATE F
+    	SET ESTADO_REPARTO = CASE 
+    		WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 2
+			WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 3
+			ELSE 4 
+		END
+		FROM EXT.FINAL_REPEXT_PAGOS_FILE_TEST F
+		INNER JOIN :TEMP_FINAL_PAGOS_BASES_113_01_RG T ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+		AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID;
+		
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_PAGOS_FILE_TEST ESTADOS ACTUALIZADOS: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+		
+		UPDATE F
+            SET ESTADO_REPARTO = CASE 
+    				WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 2
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 3
+					ELSE 4 
+				END --REPARTO CORRECTO
+			FROM :TEMP_REPEXT_PAGOS_REPARTO_FILE F
+			INNER JOIN :TEMP_FINAL_PAGOS_BASES_113_01_RG T ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+			AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+	--		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID
+			WHERE 1 = (CASE 
+    				WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 1
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+					ELSE 0 
+				END)
+			;
+        CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_REPEXT_PAGOS_REPARTO_FILE ESTADOS ACTUALIZADOS: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');   
+		
+		INSERT INTO EXT.FINAL_REPEXT_FILE_TEST("TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+            ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+            ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+            ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ")
+        SELECT "TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+            ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+            ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+            ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ"
+        FROM :TEMP_FINAL_PAGOS_BASES_113_01_RG
+        WHERE 1 = (
+        	CASE 
+        		WHEN (IMPORTE_PAGO - IFNULL(SUMA_IMPORTE,0)) = 0 THEN 1
+    			WHEN (IMPORTE_PAGO - IFNULL(SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+    		ELSE 0 
+    		END);
+
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_FILE_TEST INSERTADOS: ' ||::ROWCOUNT, v_log_count, v_idproceso, 'info');			
+		---------------------------------------------------------------------------------------------------
+
+		TEMP_FINAL_PAGOS_BASES_113_01_RG_DIF =
+			SELECT T.PERIODSEQ,T.POS_PRIN,T.TIPO_DOCUMENTO,T.DEPOSITSEQ,T.EARNINGCODEID,T.EARNINGGROUPID,T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0) AS DIF,
+				T.ORDERID,T.LINENUMBER,T.SUBLINENUMBER,T.EVENTTYPEID, T.COMPENSATIONDATE,
+				ROW_NUMBER() OVER(
+                      		PARTITION BY T.PERIODSEQ,T.POS_PRIN,T.TIPO_DOCUMENTO,T.DEPOSITSEQ,T.EARNINGCODEID,T.EARNINGGROUPID
+                      		--ORDER BY T.ORDERID
+                      ) AS RN_TRX
+			FROM :TEMP_FINAL_PAGOS_BASES_113_01_RG T
+			WHERE 1 = (CASE 
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 0
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+					ELSE 0 
+				END)
+		;
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_FINAL_PAGOS_BASES_113_01_RG_DIF: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+		UPDATE F
+    	SET F.IMPORTE = F.IMPORTE + T.DIF
+    	FROM EXT.FINAL_REPEXT_FILE_TEST F
+    	INNER JOIN :TEMP_FINAL_PAGOS_BASES_113_01_RG_DIF T  ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+		AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID
+		AND F.ORDERID = T.ORDERID AND F.LINENUMBER = T.LINENUMBER AND F.SUBLINENUMBER = T.SUBLINENUMBER AND F.EVENTTYPEID = T.EVENTTYPEID AND F.COMPENSATIONDATE = T.COMPENSATIONDATE
+		AND T.RN_TRX = 1
+		;
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_FILE_TEST IMPORTE_DIF: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+
+		
+		
+		
+		---------------------------------------------------------------------------------------------------
+		-- 113-03_RT	
+		---------------------------------------------------------------------------------------------------
+		--PAGOS
+		TEMP_PAGOS_DIRECTOS_113_03_RT = SELECT *
+    		FROM :TEMP_PAGOS_DIRECTOS
+    		WHERE SUBSTRING(EARNINGGROUPID,7,5) = '03-RT'
+    		AND EARNINGCODEID = '113';
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_PAGOS_DIRECTOS_113_03_RT: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+		--BASES
+		IF i_tipo_reparto = 'CIERRE' THEN
+			TEMP_BASES_113_03_RT = SELECT * 
+	    		FROM EXT.FINAL_BASES_REPARTO_POLIZA_FILE B
+	    		WHERE PERIODSEQ = i_periodSeq
+	    		-- EARNINGGROUPID = '01-RT'
+	    		AND PRODUCTID LIKE '032%'
+	    		-- EARNINGCODEID = '113'
+	    		/*AND (EVENTTYPEID IN ('71','65','66','72','42')
+	    			   OR (EVENTTYPEID = '43' AND SALESTRANSACTIONSEQ IN (
+	    		        SELECT T.SALESTRANSACTIONSEQ FROM EXT.TEMP_REPEXT_TXN_FILE T
+	    		        WHERE T.SALESTRANSACTIONSEQ = B.SALESTRANSACTIONSEQ
+	    		        AND T.FECHA_EFECTO > ADD_MONTHS(T.FECHA_VTO_RECIBO,-12)
+	    		    )))*/
+	            AND EVENTTYPEID = '16';
+	            
+	    	CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_BASES_113_03_RT: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+	    ELSE
+	    	TEMP_BASES_113_03_RT = SELECT * 
+    			FROM EXT.FINAL_BASES_REPARTO_POLIZA_FILE_NUEVA_BASE_REPARTO B
+    			WHERE PERIODSEQ = v_periodSeqAnterior
+    			-- EARNINGGROUPID = '01-RT'
+    			AND PRODUCTID LIKE '032%'
+    			-- EARNINGCODEID = '113'
+    			/*AND (EVENTTYPEID IN ('71','65','66','72','42')
+    				   OR (EVENTTYPEID = '43' AND SALESTRANSACTIONSEQ IN (
+    			        SELECT T.SALESTRANSACTIONSEQ FROM EXT.TEMP_REPEXT_TXN_FILE T
+    			        WHERE T.SALESTRANSACTIONSEQ = B.SALESTRANSACTIONSEQ
+    			        AND T.FECHA_EFECTO > ADD_MONTHS(T.FECHA_VTO_RECIBO,-12)
+    			    )))*/
+            	AND EVENTTYPEID = '16';
+            
+    		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_BASES_113_03_RT: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+    	END IF;
+	   
+    	
+    	
+    	--BASES_TOTAL_IMPORTE
+    	BASES_TOTAL_IMPORTE_113_03_RT = 
+			SELECT POSITIONSEQ, SUM(IMPORTE_COMISION) AS SUMA_IMPORTE
+			FROM :TEMP_BASES_113_03_RT
+			WHERE IMPORTE_COMISION <> 0
+			GROUP BY POSITIONSEQ;
+			
+    	--FINAL
+    	TEMP_FINAL_PAGOS_BASES_113_03_RT = SELECT P.PARTICIPANTSEQ,
+                                P.POSITIONSEQ,
+                                P.PERIODSEQ,
+                                :v_periodName AS PERIODO,
+                                P.POS_CALLIDUS POSITIONNAME,
+                                P.POS_PRIN,
+                                P.NIF,
+                                P.MANAGER_POS_PRIN,
+                                ORDERID,
+                                LINENUMBER,
+                                SUBLINENUMBER,
+                                EVENTTYPEID,
+                                PRODUCTID,
+                                CODIGO_POLIZA,
+                                COMPENSATIONDATE,
+                                ESTADO,
+                                P.PROGRAMA,
+                                P.TIPO_PAGO,
+                                P.DEPOSITO,
+                                P.DEPOSITSEQ,
+                                P.IMPORTE IMPORTE_PAGO,
+                                P.EARNINGCODEID,
+                                P.EARNINGGROUPID,
+                                P.TIPO_DOCUMENTO,
+                                P.TIPO_AGENTE,
+                                B.IMPORTE_COMISION AS IMPORTE,
+                                BT.SUMA_IMPORTE AS SUMA_IMPORTE,
+                                NULL AS TIPO_REPARTO,
+                                0 AS NUM_TRAMO,
+                                NULL AS REPARTO_TIPO_BASE,
+                                NULL AS REPARTO_PORCENTAJE,
+                                POLIZA_FISICA,
+                                POLIZA_CORREGIDA,
+                                PRIMA_CORREGIDA,
+                                PRIMA_NETA,
+                                PRIMA_NETA_ANUAL,
+                                PRIMA_COMIS_S4 PRIMA_COMIS,
+                                NULL AS COEF_TIPO_BASE,
+                                NULL AS COEF_CORRECTOR,
+                                COD_AGENTE,
+                                P.TIPO_LIQ
+    					FROM :TEMP_PAGOS_DIRECTOS_113_03_RT P
+    					INNER JOIN :TEMP_BASES_113_03_RT B ON P.POSITIONSEQ = B.POSITIONSEQ
+    					INNER JOIN :BASES_TOTAL_IMPORTE_113_03_RT BT ON BT.POSITIONSEQ = B.POSITIONSEQ
+    					WHERE 
+    					-- TIPO CONCEPTO: IMPORTE_COMISION
+    					B.IMPORTE_COMISION <> 0
+    					AND NOT EXISTS (
+    					    SELECT 1 
+    					    FROM EXT.FINAL_REPEXT_FILE_TEST X 
+    					    WHERE X.POS_PRIN       = P.POS_PRIN
+    					      AND X.PERIODSEQ      = P.PERIODSEQ
+    					      AND X.EARNINGCODEID  = P.EARNINGCODEID
+    					      AND X.EARNINGGROUPID = P.EARNINGGROUPID
+    					      AND X.TIPO_DOCUMENTO = P.TIPO_DOCUMENTO
+    					      AND X.ORDERID        = B.ORDERID
+    					      AND X.LINENUMBER     = B.LINENUMBER
+    					      AND X.SUBLINENUMBER  = B.SUBLINENUMBER
+    					      AND X.EVENTTYPEID    = B.EVENTTYPEID
+    					);
+    					
+    	CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_FINAL_PAGOS_BASES_113_03_RT: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+    	
+    	--LIQUIDACIÓN COMPLEMENTARIA
+		IF v_num_post > 1 AND i_tipo_reparto = 'CIERRE' THEN
+		
+			TEMP_PAGOS_DIRECTOS_113_03_RT_LC = SELECT SUM(IMPORTE) SUMA_PAGOS,PERIODSEQ,POS_PRIN,EARNINGGROUPID,EARNINGCODEID,DEPOSITO 
+				FROM :TEMP_FINAL_PAGOS_BASES_113_03_RT
+				WHERE TIPO_LIQ IN ('CIERRE','LIQ')
+				GROUP BY PERIODSEQ,POS_PRIN,EARNINGGROUPID,EARNINGCODEID,DEPOSITO;
+		
+			INSERT INTO EXT.FINAL_REPEXT_FILE_TEST("TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+		        ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+		        ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+		        ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ")
+		    SELECT "TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+		        ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE"*(-1),"TIPO_AGENTE","TIPO_DOCUMENTO",TF."EARNINGGROUPID"
+		        ,TF."EARNINGCODEID",TF.SUMA_IMPORTE,"DEPOSITSEQ",TF."DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+		        ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF",TF."POS_PRIN","POSITIONNAME","PERIODO",TF."PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ"
+		    FROM :TEMP_FINAL_PAGOS_BASES_113_03_RT TF 
+		    	INNER JOIN :TEMP_PAGOS_DIRECTOS_113_03_RT_LC TLC ON TF.PERIODSEQ = TLC.PERIODSEQ AND TF.POS_PRIN = TLC.POS_PRIN 
+		    	AND TF.EARNINGGROUPID = TLC.EARNINGGROUPID AND TF.EARNINGCODEID = TLC. EARNINGCODEID AND TF.DEPOSITO = TLC.DEPOSITO
+		    	AND 1 = (CASE WHEN SUMA_PAGOS <> SUMA_IMPORTE THEN 1 END); 
+		 END IF;
+    	-- FIN LIQUIDACIÓN COMPLEMENTARIA
+    	
+    	UPDATE F
+    	SET ESTADO_REPARTO = CASE 
+    		WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 2
+			WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 3
+			ELSE 4 
+		END
+		FROM EXT.FINAL_REPEXT_PAGOS_FILE_TEST F
+		INNER JOIN :TEMP_FINAL_PAGOS_BASES_113_03_RT T ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+		AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID;
+		
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_PAGOS_FILE_TEST ESTADOS ACTUALIZADOS: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+		
+		UPDATE F
+            SET ESTADO_REPARTO = CASE 
+    				WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 2
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 3
+					ELSE 4 
+				END --REPARTO CORRECTO
+			FROM :TEMP_REPEXT_PAGOS_REPARTO_FILE F
+			INNER JOIN :TEMP_FINAL_PAGOS_BASES_113_03_RT T ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+			AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+	--		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID
+			WHERE 1 = (CASE 
+    				WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 1
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+					ELSE 0 
+				END)
+			;
+        CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_REPEXT_PAGOS_REPARTO_FILE ESTADOS ACTUALIZADOS: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');   
+		
+		INSERT INTO EXT.FINAL_REPEXT_FILE_TEST("TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+            ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+            ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+            ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ")
+        SELECT "TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+            ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+            ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+            ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ"
+        FROM :TEMP_FINAL_PAGOS_BASES_113_03_RT
+        WHERE 1 = (
+        	CASE 
+        		WHEN (IMPORTE_PAGO - IFNULL(SUMA_IMPORTE,0)) = 0 THEN 1
+    			WHEN (IMPORTE_PAGO - IFNULL(SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+    		ELSE 0 
+    		END);
+		
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_FILE_TEST INSERTADOS: ' ||::ROWCOUNT, v_log_count, v_idproceso, 'info');	
+		---------------------------------------------------------------------------------------------------
+
+		TEMP_FINAL_PAGOS_BASES_113_03_RT_DIF =
+			SELECT T.PERIODSEQ,T.POS_PRIN,T.TIPO_DOCUMENTO,T.DEPOSITSEQ,T.EARNINGCODEID,T.EARNINGGROUPID,T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0) AS DIF,
+				T.ORDERID,T.LINENUMBER,T.SUBLINENUMBER,T.EVENTTYPEID, T.COMPENSATIONDATE,
+				ROW_NUMBER() OVER(
+                      		PARTITION BY T.PERIODSEQ,T.POS_PRIN,T.TIPO_DOCUMENTO,T.DEPOSITSEQ,T.EARNINGCODEID,T.EARNINGGROUPID
+                      		--ORDER BY T.ORDERID
+                      ) AS RN_TRX
+			FROM :TEMP_FINAL_PAGOS_BASES_113_03_RT T
+			WHERE 1 = (CASE 
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 0
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+					ELSE 0 
+				END)
+		;
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_FINAL_PAGOS_BASES_113_03_RT_DIF: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+		UPDATE F
+    	SET F.IMPORTE = F.IMPORTE + T.DIF
+    	FROM EXT.FINAL_REPEXT_FILE_TEST F
+    	INNER JOIN :TEMP_FINAL_PAGOS_BASES_113_03_RT_DIF T  ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+		AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID
+		AND F.ORDERID = T.ORDERID AND F.LINENUMBER = T.LINENUMBER AND F.SUBLINENUMBER = T.SUBLINENUMBER AND F.EVENTTYPEID = T.EVENTTYPEID AND F.COMPENSATIONDATE = T.COMPENSATIONDATE
+		AND T.RN_TRX = 1
+		;
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_FILE_TEST IMPORTE_DIF: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+
+		
+		
+		---------------------------------------------------------------------------------------------------
+		-- 113-03_RG	
+		---------------------------------------------------------------------------------------------------
+		--PAGOS
+		TEMP_PAGOS_DIRECTOS_113_03_RG = SELECT *
+    		FROM :TEMP_PAGOS_DIRECTOS
+    		WHERE SUBSTRING(EARNINGGROUPID,7,5) = '03-RG'
+    		AND EARNINGCODEID = '113';
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_PAGOS_DIRECTOS_113_03_RG: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+		--BASES
+		IF i_tipo_reparto = 'CIERRE' THEN
+			TEMP_BASES_113_03_RG = SELECT * 
+	    		FROM EXT.FINAL_BASES_REPARTO_POLIZA_FILE B
+	    		WHERE PERIODSEQ = i_periodSeq
+	    		-- EARNINGGROUPID = '03-RG'
+	    		AND PRODUCTID LIKE '03%' AND PRODUCTID NOT LIKE '032%'
+	    		-- EARNINGCODEID = '113'
+	    		/*AND (EVENTTYPEID IN ('71','65','66','72','42')
+	    			   OR (EVENTTYPEID = '43' AND SALESTRANSACTIONSEQ IN (
+	    		        SELECT T.SALESTRANSACTIONSEQ FROM EXT.TEMP_REPEXT_TXN_FILE T
+	    		        WHERE T.SALESTRANSACTIONSEQ = B.SALESTRANSACTIONSEQ
+	    		        AND T.FECHA_EFECTO > ADD_MONTHS(T.FECHA_VTO_RECIBO,-12)
+	    		    )))*/
+	            AND EVENTTYPEID = '16';
+	            
+	    	CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_BASES_113_03_RG: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+	    ELSE
+	    	TEMP_BASES_113_03_RG = SELECT * 
+    		FROM EXT.FINAL_BASES_REPARTO_POLIZA_FILE_NUEVA_BASE_REPARTO B
+    		WHERE PERIODSEQ = v_periodSeqAnterior
+    		-- EARNINGGROUPID = '03-RG'
+    		AND PRODUCTID LIKE '03%' AND PRODUCTID NOT LIKE '032%'
+    		-- EARNINGCODEID = '113'
+    		/*AND (EVENTTYPEID IN ('71','65','66','72','42')
+    			   OR (EVENTTYPEID = '43' AND SALESTRANSACTIONSEQ IN (
+    		        SELECT T.SALESTRANSACTIONSEQ FROM EXT.TEMP_REPEXT_TXN_FILE T
+    		        WHERE T.SALESTRANSACTIONSEQ = B.SALESTRANSACTIONSEQ
+    		        AND T.FECHA_EFECTO > ADD_MONTHS(T.FECHA_VTO_RECIBO,-12)
+    		    )))*/
+            AND EVENTTYPEID = '16';
+            
+    		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_BASES_113_03_RG (BALANCE): ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+    	END IF;
+    	
+    	
+    	--BASES_TOTAL_IMPORTE
+    	BASES_TOTAL_IMPORTE_113_03_RG = 
+			SELECT POSITIONSEQ, SUM(IMPORTE_COMISION) AS SUMA_IMPORTE
+			FROM :TEMP_BASES_113_03_RG
+			WHERE IMPORTE_COMISION <> 0
+			GROUP BY POSITIONSEQ;
+			
+    	--FINAL
+    	TEMP_FINAL_PAGOS_BASES_113_03_RG = SELECT P.PARTICIPANTSEQ,
+                                P.POSITIONSEQ,
+                                P.PERIODSEQ,
+                                :v_periodName AS PERIODO,
+                                P.POS_CALLIDUS POSITIONNAME,
+                                P.POS_PRIN,
+                                P.NIF,
+                                P.MANAGER_POS_PRIN,
+                                ORDERID,
+                                LINENUMBER,
+                                SUBLINENUMBER,
+                                EVENTTYPEID,
+                                PRODUCTID,
+                                CODIGO_POLIZA,
+                                COMPENSATIONDATE,
+                                ESTADO,
+                                P.PROGRAMA,
+                                P.TIPO_PAGO,
+                                P.DEPOSITO,
+                                P.DEPOSITSEQ,
+                                P.IMPORTE IMPORTE_PAGO,
+                                P.EARNINGCODEID,
+                                P.EARNINGGROUPID,
+                                P.TIPO_DOCUMENTO,
+                                P.TIPO_AGENTE,
+                                B.IMPORTE_COMISION AS IMPORTE,
+                                BT.SUMA_IMPORTE AS SUMA_IMPORTE,
+                                NULL AS TIPO_REPARTO,
+                                0 AS NUM_TRAMO,
+                                NULL AS REPARTO_TIPO_BASE,
+                                NULL AS REPARTO_PORCENTAJE,
+                                POLIZA_FISICA,
+                                POLIZA_CORREGIDA,
+                                PRIMA_CORREGIDA,
+                                PRIMA_NETA,
+                                PRIMA_NETA_ANUAL,
+                                PRIMA_COMIS_S4 PRIMA_COMIS,
+                                NULL AS COEF_TIPO_BASE,
+                                NULL AS COEF_CORRECTOR,
+                                COD_AGENTE,
+                                P.TIPO_LIQ
+    					FROM :TEMP_PAGOS_DIRECTOS_113_03_RG P
+    					INNER JOIN :TEMP_BASES_113_03_RG B ON P.POSITIONSEQ = B.POSITIONSEQ
+    					INNER JOIN :BASES_TOTAL_IMPORTE_113_03_RG BT ON BT.POSITIONSEQ = B.POSITIONSEQ
+    					WHERE 
+    					-- TIPO CONCEPTO: IMPORTE_COMISION
+    					B.IMPORTE_COMISION <> 0
+    					AND NOT EXISTS (
+    					    SELECT 1 
+    					    FROM EXT.FINAL_REPEXT_FILE_TEST X 
+    					    WHERE X.POS_PRIN       = P.POS_PRIN
+    					      AND X.PERIODSEQ      = P.PERIODSEQ
+    					      AND X.EARNINGCODEID  = P.EARNINGCODEID
+    					      AND X.EARNINGGROUPID = P.EARNINGGROUPID
+    					      AND X.TIPO_DOCUMENTO = P.TIPO_DOCUMENTO
+    					      AND X.ORDERID        = B.ORDERID
+    					      AND X.LINENUMBER     = B.LINENUMBER
+    					      AND X.SUBLINENUMBER  = B.SUBLINENUMBER
+    					      AND X.EVENTTYPEID    = B.EVENTTYPEID
+    					);
+    					
+    	CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_FINAL_PAGOS_BASES_113_03_RG: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+    	
+    	--LIQUIDACIÓN COMPLEMENTARIA
+		IF v_num_post > 1 AND i_tipo_reparto = 'CIERRE' THEN
+		
+			TEMP_PAGOS_DIRECTOS_113_03_RG_LC = SELECT SUM(IMPORTE) SUMA_PAGOS,PERIODSEQ,POS_PRIN,EARNINGGROUPID,EARNINGCODEID,DEPOSITO 
+				FROM :TEMP_FINAL_PAGOS_BASES_113_03_RG
+				WHERE TIPO_LIQ IN ('CIERRE','LIQ')
+				GROUP BY PERIODSEQ,POS_PRIN,EARNINGGROUPID,EARNINGCODEID,DEPOSITO;
+		
+			INSERT INTO EXT.FINAL_REPEXT_FILE_TEST("TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+		        ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+		        ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+		        ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ")
+		    SELECT "TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+		        ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE"*(-1),"TIPO_AGENTE","TIPO_DOCUMENTO",TF."EARNINGGROUPID"
+		        ,TF."EARNINGCODEID",TF.SUMA_IMPORTE,"DEPOSITSEQ",TF."DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+		        ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF",TF."POS_PRIN","POSITIONNAME","PERIODO",TF."PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ"
+		    FROM :TEMP_FINAL_PAGOS_BASES_113_03_RG TF 
+		    	INNER JOIN :TEMP_PAGOS_DIRECTOS_113_03_RG_LC TLC ON TF.PERIODSEQ = TLC.PERIODSEQ AND TF.POS_PRIN = TLC.POS_PRIN 
+		    	AND TF.EARNINGGROUPID = TLC.EARNINGGROUPID AND TF.EARNINGCODEID = TLC. EARNINGCODEID AND TF.DEPOSITO = TLC.DEPOSITO
+		    	AND 1 = (CASE WHEN SUMA_PAGOS <> SUMA_IMPORTE THEN 1 END); 
+		 END IF;
+    	-- FIN LIQUIDACIÓN COMPLEMENTARIA
+    	
+    	UPDATE F
+    	SET ESTADO_REPARTO = CASE 
+    		WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 2
+			WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 3
+			ELSE 4 
+		END
+		FROM EXT.FINAL_REPEXT_PAGOS_FILE_TEST F
+		INNER JOIN :TEMP_FINAL_PAGOS_BASES_113_03_RG T ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+		AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID;
+		
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_PAGOS_FILE_TEST ESTADOS ACTUALIZADOS: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+		
+		UPDATE F
+            SET ESTADO_REPARTO = CASE 
+    				WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 2
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 3
+					ELSE 4 
+				END --REPARTO CORRECTO
+			FROM :TEMP_REPEXT_PAGOS_REPARTO_FILE F
+			INNER JOIN :TEMP_FINAL_PAGOS_BASES_113_03_RG T ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+			AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+	--		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID
+			WHERE 1 = (CASE 
+    				WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 1
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+					ELSE 0 
+				END)
+			;
+        CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_REPEXT_PAGOS_REPARTO_FILE ESTADOS ACTUALIZADOS: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');   
+	
+		INSERT INTO EXT.FINAL_REPEXT_FILE_TEST("TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+            ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+            ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+            ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ")
+        SELECT "TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+            ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+            ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+            ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ"
+        FROM :TEMP_FINAL_PAGOS_BASES_113_03_RG
+        WHERE 1 = (
+        	CASE 
+        		WHEN (IMPORTE_PAGO - IFNULL(SUMA_IMPORTE,0)) = 0 THEN 1
+    			WHEN (IMPORTE_PAGO - IFNULL(SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+    		ELSE 0 
+    		END);
+        
+ 		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_FILE_TEST INSERTADOS: ' ||::ROWCOUNT, v_log_count, v_idproceso, 'info');	
+----------------------------------------------------------------
+
+		TEMP_FINAL_PAGOS_BASES_113_03_RG_DIF =
+			SELECT T.PERIODSEQ,T.POS_PRIN,T.TIPO_DOCUMENTO,T.DEPOSITSEQ,T.EARNINGCODEID,T.EARNINGGROUPID,T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0) AS DIF,
+				T.ORDERID,T.LINENUMBER,T.SUBLINENUMBER,T.EVENTTYPEID, T.COMPENSATIONDATE,
+				ROW_NUMBER() OVER(
+                      		PARTITION BY T.PERIODSEQ,T.POS_PRIN,T.TIPO_DOCUMENTO,T.DEPOSITSEQ,T.EARNINGCODEID,T.EARNINGGROUPID
+                      		--ORDER BY T.ORDERID
+                      ) AS RN_TRX
+			FROM :TEMP_FINAL_PAGOS_BASES_113_03_RG T
+			WHERE 1 = (CASE 
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 0
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+					ELSE 0 
+				END)
+		;
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_FINAL_PAGOS_BASES_113_03_RG_DIF: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+		UPDATE F
+    	SET F.IMPORTE = F.IMPORTE + T.DIF
+    	FROM EXT.FINAL_REPEXT_FILE_TEST F
+    	INNER JOIN :TEMP_FINAL_PAGOS_BASES_113_03_RG_DIF T  ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+		AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID
+		AND F.ORDERID = T.ORDERID AND F.LINENUMBER = T.LINENUMBER AND F.SUBLINENUMBER = T.SUBLINENUMBER AND F.EVENTTYPEID = T.EVENTTYPEID AND F.COMPENSATIONDATE = T.COMPENSATIONDATE AND F.COMPENSATIONDATE = T.COMPENSATIONDATE
+		AND T.RN_TRX = 1
+		;
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_FILE_TEST IMPORTE_DIF: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+
+
+
+
+		---------------------------------------------------------------------------------------------------
+		-- 123_126_127-01_RT	
+		---------------------------------------------------------------------------------------------------
+		--PAGOS
+		TEMP_PAGOS_DIRECTOS_123_126_127_01_RT = SELECT *
+    		FROM :TEMP_PAGOS_DIRECTOS
+    		WHERE SUBSTRING(EARNINGGROUPID,7,5) = '01-RT'
+    		AND (EARNINGCODEID LIKE  '123%' OR EARNINGCODEID LIKE  '126%' OR EARNINGCODEID LIKE  '127%');
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_PAGOS_DIRECTOS_123_126_127_01_RT: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+		--BASES
+		IF i_tipo_reparto = 'CIERRE' THEN
+			TEMP_BASES_123_126_127_01_RT = SELECT * 
+	    		FROM EXT.FINAL_BASES_REPARTO_POLIZA_FILE B
+	    		WHERE PERIODSEQ = i_periodSeq
+	    		-- EARNINGGROUPID = '01-RT'
+	    		-- EARNINGCODEID = '123_126_127'
+	    		AND EVENTTYPEID = '11';
+	    		
+	    	CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_BASES_123_126_127_01_RT: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+	    ELSE
+	    	TEMP_BASES_123_126_127_01_RT = SELECT * 
+    		FROM EXT.FINAL_BASES_REPARTO_POLIZA_FILE_NUEVA_BASE_REPARTO B
+    		WHERE PERIODSEQ = v_periodSeqAnterior
+    		-- EARNINGGROUPID = '01-RT'
+    		-- EARNINGCODEID = '123_126_127'
+    		AND EVENTTYPEID = '11';
+    		
+    		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_BASES_123_126_127_01_RT (BALANCE): ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+    	END IF;
+    	
+   --	--BASES_TOTAL_IMPORTE
+   -- 	BASES_TOTAL_IMPORTE_123_126_127_01_RT = 
+			-- SELECT POSITIONSEQ, SUM(IMPORTE_GRATIF) AS SUMA_IMPORTE
+			-- FROM :TEMP_BASES_123_126_127_01_RT
+			-- WHERE IMPORTE_GRATIF <> 0
+			-- GROUP BY POSITIONSEQ;
+			
+			
+    	--FINAL
+    	TEMP_FINAL_PAGOS_BASES_123_126_127_01_RT = SELECT P.PARTICIPANTSEQ,
+                                P.POSITIONSEQ,
+                                P.PERIODSEQ,
+                                :v_periodName AS PERIODO,
+                                P.POS_CALLIDUS POSITIONNAME,
+                                P.POS_PRIN,
+                                P.NIF,
+                                P.MANAGER_POS_PRIN,
+                                ORDERID,
+                                LINENUMBER,
+                                SUBLINENUMBER,
+                                EVENTTYPEID,
+                                PRODUCTID,
+                                CODIGO_POLIZA,
+                                COMPENSATIONDATE,
+                                ESTADO,
+                                P.PROGRAMA,
+                                P.TIPO_PAGO,
+                                P.DEPOSITO,
+                                P.DEPOSITSEQ,
+                                P.IMPORTE IMPORTE_PAGO,
+                                P.EARNINGCODEID,
+                                P.EARNINGGROUPID,
+                                P.TIPO_DOCUMENTO,
+                                P.TIPO_AGENTE,
+                                B.IMPORTE_GRATIF AS IMPORTE,
+                                (SELECT SUM(IMPORTE_GRATIF)
+                                	FROM :TEMP_BASES_123_126_127_01_RT S
+                                	WHERE S.POSITIONSEQ = B.POSITIONSEQ
+                                	AND S.PRODUCTID LIKE '%'||RIGHT(P.EARNINGCODEID,5)
+                                ) AS SUMA_IMPORTE,
+                                NULL AS TIPO_REPARTO,
+                                0 AS NUM_TRAMO,
+                                NULL AS REPARTO_TIPO_BASE,
+                                NULL AS REPARTO_PORCENTAJE,
+                                POLIZA_FISICA,
+                                POLIZA_CORREGIDA,
+                                PRIMA_CORREGIDA,
+                                PRIMA_NETA,
+                                PRIMA_NETA_ANUAL,
+                                PRIMA_COMIS_S4 PRIMA_COMIS,
+                                NULL AS COEF_TIPO_BASE,
+                                NULL AS COEF_CORRECTOR,
+                                COD_AGENTE,
+                                P.TIPO_LIQ
+    					FROM :TEMP_PAGOS_DIRECTOS_123_126_127_01_RT P
+    					INNER JOIN :TEMP_BASES_123_126_127_01_RT B ON P.POSITIONSEQ = B.POSITIONSEQ
+    					--INNER JOIN :BASES_TOTAL_IMPORTE_123_126_127_01_RT BT ON BT.POSITIONSEQ = B.POSITIONSEQ
+    					WHERE 
+    					PRODUCTID LIKE '%'||RIGHT(P.EARNINGCODEID,5)
+    					-- TIPO CONCEPTO: IMPORTE_COMISION
+    					AND B.IMPORTE_GRATIF <> 0
+    					AND NOT EXISTS (
+    					    SELECT 1 
+    					    FROM EXT.FINAL_REPEXT_FILE_TEST X 
+    					    WHERE X.POS_PRIN       = P.POS_PRIN
+    					      AND X.PERIODSEQ      = P.PERIODSEQ
+    					      AND X.EARNINGCODEID  = P.EARNINGCODEID
+    					      AND X.EARNINGGROUPID = P.EARNINGGROUPID
+    					      AND X.TIPO_DOCUMENTO = P.TIPO_DOCUMENTO
+    					      AND X.ORDERID        = B.ORDERID
+    					      AND X.LINENUMBER     = B.LINENUMBER
+    					      AND X.SUBLINENUMBER  = B.SUBLINENUMBER
+    					      AND X.EVENTTYPEID    = B.EVENTTYPEID
+    					);
+    	CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_FINAL_PAGOS_BASES_123_126_127_01_RT: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+    	
+    	--LIQUIDACIÓN COMPLEMENTARIA
+		IF v_num_post > 1 AND i_tipo_reparto = 'CIERRE' THEN
+		
+			TEMP_PAGOS_DIRECTOS_123_126_127_01_RT_LC = SELECT SUM(IMPORTE) SUMA_PAGOS,PERIODSEQ,POS_PRIN,EARNINGGROUPID,EARNINGCODEID,DEPOSITO 
+				FROM :TEMP_FINAL_PAGOS_BASES_123_126_127_01_RT
+				WHERE TIPO_LIQ IN ('CIERRE','LIQ')
+				GROUP BY PERIODSEQ,POS_PRIN,EARNINGGROUPID,EARNINGCODEID,DEPOSITO;
+		
+			INSERT INTO EXT.FINAL_REPEXT_FILE_TEST("TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+		        ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+		        ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+		        ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ")
+		    SELECT "TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+		        ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE"*(-1),"TIPO_AGENTE","TIPO_DOCUMENTO",TF."EARNINGGROUPID"
+		        ,TF."EARNINGCODEID",TF.SUMA_IMPORTE,"DEPOSITSEQ",TF."DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+		        ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF",TF."POS_PRIN","POSITIONNAME","PERIODO",TF."PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ"
+		    FROM :TEMP_FINAL_PAGOS_BASES_123_126_127_01_RT TF 
+		    	INNER JOIN :TEMP_PAGOS_DIRECTOS_123_126_127_01_RT_LC TLC ON TF.PERIODSEQ = TLC.PERIODSEQ AND TF.POS_PRIN = TLC.POS_PRIN 
+		    	AND TF.EARNINGGROUPID = TLC.EARNINGGROUPID AND TF.EARNINGCODEID = TLC. EARNINGCODEID AND TF.DEPOSITO = TLC.DEPOSITO
+		    	AND 1 = (CASE WHEN SUMA_PAGOS <> SUMA_IMPORTE THEN 1 END); 
+		 END IF;
+    	-- FIN LIQUIDACIÓN COMPLEMENTARIA
+    	
+    	UPDATE F
+    	SET ESTADO_REPARTO = CASE 
+    		WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 2
+			WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 3
+			ELSE 4 
+		END
+		FROM EXT.FINAL_REPEXT_PAGOS_FILE_TEST F
+		INNER JOIN :TEMP_FINAL_PAGOS_BASES_123_126_127_01_RT T ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+		AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID;
+		
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_PAGOS_FILE_TEST ESTADOS ACTUALIZADOS: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+		
+		UPDATE F
+            SET ESTADO_REPARTO = CASE 
+    				WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 2
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 3
+					ELSE 4 
+				END --REPARTO CORRECTO
+			FROM :TEMP_REPEXT_PAGOS_REPARTO_FILE F
+			INNER JOIN :TEMP_FINAL_PAGOS_BASES_123_126_127_01_RT T ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+			AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+			WHERE 1 = (CASE 
+    				WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 1
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+					ELSE 0 
+				END)
+	--		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID
+			;
+        CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_REPEXT_PAGOS_REPARTO_FILE ESTADOS ACTUALIZADOS: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');   
+                                   
+		
+		INSERT INTO EXT.FINAL_REPEXT_FILE_TEST("TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+            ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+            ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+            ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ")
+        SELECT "TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+            ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+            ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+            ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ"
+        FROM :TEMP_FINAL_PAGOS_BASES_123_126_127_01_RT
+        WHERE 1 = (
+        	CASE 
+        		WHEN (IMPORTE_PAGO - IFNULL(SUMA_IMPORTE,0)) = 0 THEN 1
+    			WHEN (IMPORTE_PAGO - IFNULL(SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+    		ELSE 0 
+    		END);
+
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_FILE_TEST INSERTADOS: ' ||::ROWCOUNT, v_log_count, v_idproceso, 'info');	
+		---------------------------------------------------------------------------------------------------
+
+		TEMP_FINAL_PAGOS_BASES_123_126_127_01_RT_DIF =
+			SELECT T.PERIODSEQ,T.POS_PRIN,T.TIPO_DOCUMENTO,T.DEPOSITSEQ,T.EARNINGCODEID,T.EARNINGGROUPID,T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0) AS DIF,
+				T.ORDERID,T.LINENUMBER,T.SUBLINENUMBER,T.EVENTTYPEID, T.COMPENSATIONDATE,
+				ROW_NUMBER() OVER(
+                      		PARTITION BY T.PERIODSEQ,T.POS_PRIN,T.TIPO_DOCUMENTO,T.DEPOSITSEQ,T.EARNINGCODEID,T.EARNINGGROUPID
+                      		--ORDER BY T.ORDERID
+                      ) AS RN_TRX
+			FROM :TEMP_FINAL_PAGOS_BASES_123_126_127_01_RT T
+			WHERE 1 = (CASE 
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 0
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+					ELSE 0 
+				END)
+		;
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_FINAL_PAGOS_BASES_123_126_127_01_RT_DIF: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+		UPDATE F
+    	SET F.IMPORTE = F.IMPORTE + T.DIF
+    	FROM EXT.FINAL_REPEXT_FILE_TEST F
+    	INNER JOIN :TEMP_FINAL_PAGOS_BASES_123_126_127_01_RT_DIF T  ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+		AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID
+		AND F.ORDERID = T.ORDERID AND F.LINENUMBER = T.LINENUMBER AND F.SUBLINENUMBER = T.SUBLINENUMBER AND F.EVENTTYPEID = T.EVENTTYPEID AND F.COMPENSATIONDATE = T.COMPENSATIONDATE AND F.COMPENSATIONDATE = T.COMPENSATIONDATE
+		AND T.RN_TRX = 1
+		;
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_FILE_TEST IMPORTE_DIF: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+		
+		
+		
+		---------------------------------------------------------------------------------------------------
+		-- 123_126_127-01_RG	
+		---------------------------------------------------------------------------------------------------
+		--PAGOS
+		TEMP_PAGOS_DIRECTOS_123_126_127_01_RG = SELECT *
+    		FROM :TEMP_PAGOS_DIRECTOS
+    		WHERE SUBSTRING(EARNINGGROUPID,7,5) = '01-RG'
+    		AND (EARNINGCODEID LIKE  '123%' OR EARNINGCODEID LIKE  '126%' OR EARNINGCODEID LIKE  '127%');
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_PAGOS_DIRECTOS_123_126_127_01_RG: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+		--BASES
+		IF i_tipo_reparto = 'CIERRE' THEN
+			TEMP_BASES_123_126_127_01_RG = SELECT * 
+	    		FROM EXT.FINAL_BASES_REPARTO_POLIZA_FILE B
+	    		WHERE PERIODSEQ = i_periodSeq
+	    		-- EARNINGGROUPID = '01-RG'
+	    		-- AND PRODUCTID LIKE '01%' AND PRODUCTID NOT LIKE '012%'
+	    		-- EARNINGCODEID = '123_126_127'
+	    		AND EVENTTYPEID = '11';
+	    		
+	    	CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_BASES_123_126_127_01_RG: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+	    ELSE
+	    	TEMP_BASES_123_126_127_01_RG = SELECT * 
+    		FROM EXT.FINAL_BASES_REPARTO_POLIZA_FILE_NUEVA_BASE_REPARTO B
+    		WHERE PERIODSEQ = v_periodSeqAnterior
+    		-- EARNINGGROUPID = '01-RG'
+    		-- AND PRODUCTID LIKE '01%' AND PRODUCTID NOT LIKE '012%'
+    		-- EARNINGCODEID = '123_126_127'
+    		AND EVENTTYPEID = '11';
+    		
+    		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_BASES_123_126_127_01_RG (BALANCE): ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+    	END IF;
+    	
+   -- 	--BASES_TOTAL_IMPORTE
+   -- 	BASES_TOTAL_IMPORTE_123_126_127_01_RG = 
+			-- SELECT POSITIONSEQ, SUM(IMPORTE_GRATIF) AS SUMA_IMPORTE
+			-- FROM :TEMP_BASES_123_126_127_01_RG
+			-- WHERE IMPORTE_GRATIF <> 0
+			-- GROUP BY POSITIONSEQ;
+			
+    	
+    	--FINAL
+    	TEMP_FINAL_PAGOS_BASES_123_126_127_01_RG = SELECT P.PARTICIPANTSEQ,
+                                P.POSITIONSEQ,
+                                P.PERIODSEQ,
+                                :v_periodName AS PERIODO,
+                                P.POS_CALLIDUS POSITIONNAME,
+                                P.POS_PRIN,
+                                P.NIF,
+                                P.MANAGER_POS_PRIN,
+                                ORDERID,
+                                LINENUMBER,
+                                SUBLINENUMBER,
+                                EVENTTYPEID,
+                                PRODUCTID,
+                                CODIGO_POLIZA,
+                                COMPENSATIONDATE,
+                                ESTADO,
+                                P.PROGRAMA,
+                                P.TIPO_PAGO,
+                                P.DEPOSITO,
+                                P.DEPOSITSEQ,
+                                P.IMPORTE IMPORTE_PAGO,
+                                P.EARNINGCODEID,
+                                P.EARNINGGROUPID,
+                                P.TIPO_DOCUMENTO,
+                                P.TIPO_AGENTE,
+                                B.IMPORTE_GRATIF AS IMPORTE,
+                                (SELECT SUM(IMPORTE_GRATIF)
+                                	FROM :TEMP_BASES_123_126_127_01_RG S
+                                	WHERE S.POSITIONSEQ = B.POSITIONSEQ
+                                	AND S.PRODUCTID LIKE '%'||RIGHT(P.EARNINGCODEID,5)
+                                ) AS SUMA_IMPORTE,
+                                NULL AS TIPO_REPARTO,
+                                0 AS NUM_TRAMO,
+                                NULL AS REPARTO_TIPO_BASE,
+                                NULL AS REPARTO_PORCENTAJE,
+                                POLIZA_FISICA,
+                                POLIZA_CORREGIDA,
+                                PRIMA_CORREGIDA,
+                                PRIMA_NETA,
+                                PRIMA_NETA_ANUAL,
+                                PRIMA_COMIS_S4 PRIMA_COMIS,
+                                NULL AS COEF_TIPO_BASE,
+                                NULL AS COEF_CORRECTOR,
+                                COD_AGENTE,
+                                P.TIPO_LIQ
+    					FROM :TEMP_PAGOS_DIRECTOS_123_126_127_01_RG P
+    					INNER JOIN :TEMP_BASES_123_126_127_01_RG B ON P.POSITIONSEQ = B.POSITIONSEQ
+    					--INNER JOIN :BASES_TOTAL_IMPORTE_123_126_127_01_RG BT ON BT.POSITIONSEQ = B.POSITIONSEQ
+    					WHERE 
+    					PRODUCTID LIKE '%'||RIGHT(P.EARNINGCODEID,5)
+    					-- TIPO CONCEPTO: IMPORTE_COMISION
+    					AND B.IMPORTE_GRATIF <> 0
+    					AND NOT EXISTS (
+    					    SELECT 1 
+    					    FROM EXT.FINAL_REPEXT_FILE_TEST X 
+    					    WHERE X.POS_PRIN       = P.POS_PRIN
+    					      AND X.PERIODSEQ      = P.PERIODSEQ
+    					      AND X.EARNINGCODEID  = P.EARNINGCODEID
+    					      AND X.EARNINGGROUPID = P.EARNINGGROUPID
+    					      AND X.TIPO_DOCUMENTO = P.TIPO_DOCUMENTO
+    					      AND X.ORDERID        = B.ORDERID
+    					      AND X.LINENUMBER     = B.LINENUMBER
+    					      AND X.SUBLINENUMBER  = B.SUBLINENUMBER
+    					      AND X.EVENTTYPEID    = B.EVENTTYPEID
+    					);
+    					
+    	CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_FINAL_PAGOS_BASES_123_126_127_01_RG: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+    	
+    	--LIQUIDACIÓN COMPLEMENTARIA
+		IF v_num_post > 1 AND i_tipo_reparto = 'CIERRE' THEN
+		
+			TEMP_PAGOS_DIRECTOS_123_126_127_01_RG_LC = SELECT SUM(IMPORTE) SUMA_PAGOS,PERIODSEQ,POS_PRIN,EARNINGGROUPID,EARNINGCODEID,DEPOSITO 
+				FROM :TEMP_FINAL_PAGOS_BASES_123_126_127_01_RG
+				WHERE TIPO_LIQ IN ('CIERRE','LIQ')
+				GROUP BY PERIODSEQ,POS_PRIN,EARNINGGROUPID,EARNINGCODEID,DEPOSITO;
+		
+			INSERT INTO EXT.FINAL_REPEXT_FILE_TEST("TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+		        ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+		        ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+		        ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ")
+		    SELECT "TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+		        ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE"*(-1),"TIPO_AGENTE","TIPO_DOCUMENTO",TF."EARNINGGROUPID"
+		        ,TF."EARNINGCODEID",TF.SUMA_IMPORTE,"DEPOSITSEQ",TF."DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+		        ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF",TF."POS_PRIN","POSITIONNAME","PERIODO",TF."PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ"
+		    FROM :TEMP_FINAL_PAGOS_BASES_123_126_127_01_RG TF 
+		    	INNER JOIN :TEMP_PAGOS_DIRECTOS_123_126_127_01_RG_LC TLC ON TF.PERIODSEQ = TLC.PERIODSEQ AND TF.POS_PRIN = TLC.POS_PRIN 
+		    	AND TF.EARNINGGROUPID = TLC.EARNINGGROUPID AND TF.EARNINGCODEID = TLC. EARNINGCODEID AND TF.DEPOSITO = TLC.DEPOSITO
+		    	AND 1 = (CASE WHEN SUMA_PAGOS <> SUMA_IMPORTE THEN 1 END); 
+		 END IF;
+    	-- FIN LIQUIDACIÓN COMPLEMENTARIA
+    	
+    	UPDATE F
+    	SET ESTADO_REPARTO = CASE 
+    		WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 2
+			WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 3
+			ELSE 4 
+		END
+		FROM EXT.FINAL_REPEXT_PAGOS_FILE_TEST F
+		INNER JOIN :TEMP_FINAL_PAGOS_BASES_123_126_127_01_RG T ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+		AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID;
+		
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_PAGOS_FILE_TEST ESTADOS ACTUALIZADOS: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+		
+		UPDATE F
+            SET ESTADO_REPARTO = CASE 
+    				WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 2
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 3
+					ELSE 4 
+				END --REPARTO CORRECTO
+			FROM :TEMP_REPEXT_PAGOS_REPARTO_FILE F
+			INNER JOIN :TEMP_FINAL_PAGOS_BASES_123_126_127_01_RG T ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+			AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+	--		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID
+			WHERE 1 = (CASE 
+    				WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 1
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+					ELSE 0 
+				END)
+			;
+        CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_REPEXT_PAGOS_REPARTO_FILE ESTADOS ACTUALIZADOS: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');   
+		
+		INSERT INTO EXT.FINAL_REPEXT_FILE_TEST("TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+            ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+            ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+            ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ")
+        SELECT "TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+            ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+            ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+            ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ"
+        FROM :TEMP_FINAL_PAGOS_BASES_123_126_127_01_RG
+        WHERE 1 = (
+        	CASE 
+        		WHEN (IMPORTE_PAGO - IFNULL(SUMA_IMPORTE,0)) = 0 THEN 1
+    			WHEN (IMPORTE_PAGO - IFNULL(SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+    		ELSE 0 
+    		END);
+		
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_FILE_TEST INSERTADOS: ' ||::ROWCOUNT, v_log_count, v_idproceso, 'info');	
+		---------------------------------------------------------------------------------------------------
+
+		TEMP_FINAL_PAGOS_BASES_123_126_127_01_RG_DIF =
+			SELECT T.PERIODSEQ,T.POS_PRIN,T.TIPO_DOCUMENTO,T.DEPOSITSEQ,T.EARNINGCODEID,T.EARNINGGROUPID,T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0) AS DIF,
+				T.ORDERID,T.LINENUMBER,T.SUBLINENUMBER,T.EVENTTYPEID, T.COMPENSATIONDATE,
+				ROW_NUMBER() OVER(
+                      		PARTITION BY T.PERIODSEQ,T.POS_PRIN,T.TIPO_DOCUMENTO,T.DEPOSITSEQ,T.EARNINGCODEID,T.EARNINGGROUPID
+                      		--ORDER BY T.ORDERID
+                      ) AS RN_TRX
+			FROM :TEMP_FINAL_PAGOS_BASES_123_126_127_01_RG T
+			WHERE 1 = (CASE 
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 0
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+					ELSE 0 
+				END)
+		;
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_FINAL_PAGOS_BASES_123_126_127_01_RG_DIF: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+		UPDATE F
+    	SET F.IMPORTE = F.IMPORTE + T.DIF
+    	FROM EXT.FINAL_REPEXT_FILE_TEST F
+    	INNER JOIN :TEMP_FINAL_PAGOS_BASES_123_126_127_01_RG_DIF T  ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+		AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID
+		AND F.ORDERID = T.ORDERID AND F.LINENUMBER = T.LINENUMBER AND F.SUBLINENUMBER = T.SUBLINENUMBER AND F.EVENTTYPEID = T.EVENTTYPEID AND F.COMPENSATIONDATE = T.COMPENSATIONDATE AND F.COMPENSATIONDATE = T.COMPENSATIONDATE
+		AND T.RN_TRX = 1
+		;
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_FILE_TEST IMPORTE_DIF: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+
+		
+		
+		
+		---------------------------------------------------------------------------------------------------
+		-- 123_126_127-03_RT	
+		---------------------------------------------------------------------------------------------------
+		--PAGOS
+		TEMP_PAGOS_DIRECTOS_123_126_127_03_RT = SELECT *
+    		FROM :TEMP_PAGOS_DIRECTOS
+    		WHERE SUBSTRING(EARNINGGROUPID,7,5) = '03-RT'
+    		AND (EARNINGCODEID LIKE  '123%' OR EARNINGCODEID LIKE  '126%' OR EARNINGCODEID LIKE  '127%');
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_PAGOS_DIRECTOS_123_126_127_03_RT: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+		--BASES
+		IF i_tipo_reparto = 'CIERRE' THEN
+			TEMP_BASES_123_126_127_03_RT = SELECT * 
+	    		FROM EXT.FINAL_BASES_REPARTO_POLIZA_FILE B
+	    		WHERE PERIODSEQ = i_periodSeq
+	    		-- EARNINGGROUPID = '01-RT'
+	    		-- AND PRODUCTID LIKE '032%'
+	    		-- EARNINGCODEID = '123_126_127'
+	    		AND EVENTTYPEID = '11';
+	    		
+	    	CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_BASES_123_126_127_03_RT: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+	    ELSE
+	    	TEMP_BASES_123_126_127_03_RT = SELECT * 
+    		FROM EXT.FINAL_BASES_REPARTO_POLIZA_FILE_NUEVA_BASE_REPARTO B
+    		WHERE PERIODSEQ = v_periodSeqAnterior
+    		-- EARNINGGROUPID = '01-RT'
+    		-- AND PRODUCTID LIKE '032%'
+    		-- EARNINGCODEID = '123_126_127'
+    		AND EVENTTYPEID = '11';
+    		
+    		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_BASES_123_126_127_03_RT (BALANCE): ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+    	END IF;
+    	
+   -- 	--BASES_TOTAL_IMPORTE
+   -- 	BASES_TOTAL_IMPORTE_123_126_127_03_RT = 
+			-- SELECT POSITIONSEQ, SUM(IMPORTE_GRATIF) AS SUMA_IMPORTE
+			-- FROM :TEMP_BASES_123_126_127_03_RT
+			-- WHERE IMPORTE_GRATIF <> 0
+			-- GROUP BY POSITIONSEQ;
+			
+    	
+    	--FINAL
+    	TEMP_FINAL_PAGOS_BASES_123_126_127_03_RT = SELECT P.PARTICIPANTSEQ,
+                                P.POSITIONSEQ,
+                                P.PERIODSEQ,
+                                :v_periodName AS PERIODO,
+                                P.POS_CALLIDUS POSITIONNAME,
+                                P.POS_PRIN,
+                                P.NIF,
+                                P.MANAGER_POS_PRIN,
+                                ORDERID,
+                                LINENUMBER,
+                                SUBLINENUMBER,
+                                EVENTTYPEID,
+                                PRODUCTID,
+                                CODIGO_POLIZA,
+                                COMPENSATIONDATE,
+                                ESTADO,
+                                P.PROGRAMA,
+                                P.TIPO_PAGO,
+                                P.DEPOSITO,
+                                P.DEPOSITSEQ,
+                                P.IMPORTE IMPORTE_PAGO,
+                                P.EARNINGCODEID,
+                                P.EARNINGGROUPID,
+                                P.TIPO_DOCUMENTO,
+                                P.TIPO_AGENTE,
+                                B.IMPORTE_GRATIF AS IMPORTE,
+                                (SELECT SUM(IMPORTE_GRATIF)
+                                	FROM :TEMP_BASES_123_126_127_03_RT S
+                                	WHERE S.POSITIONSEQ = B.POSITIONSEQ
+                                	AND S.PRODUCTID LIKE '%'||RIGHT(P.EARNINGCODEID,5)
+                                ) AS SUMA_IMPORTE,
+                                NULL AS TIPO_REPARTO,
+                                0 AS NUM_TRAMO,
+                                NULL AS REPARTO_TIPO_BASE,
+                                NULL AS REPARTO_PORCENTAJE,
+                                POLIZA_FISICA,
+                                POLIZA_CORREGIDA,
+                                PRIMA_CORREGIDA,
+                                PRIMA_NETA,
+                                PRIMA_NETA_ANUAL,
+                                PRIMA_COMIS_S4 PRIMA_COMIS,
+                                NULL AS COEF_TIPO_BASE,
+                                NULL AS COEF_CORRECTOR,
+                                COD_AGENTE,
+                                P.TIPO_LIQ
+    					FROM :TEMP_PAGOS_DIRECTOS_123_126_127_03_RT P
+    					INNER JOIN :TEMP_BASES_123_126_127_03_RT B ON P.POSITIONSEQ = B.POSITIONSEQ
+    					--INNER JOIN :BASES_TOTAL_IMPORTE_123_126_127_03_RT BT ON BT.POSITIONSEQ = B.POSITIONSEQ
+    					WHERE 
+    					PRODUCTID LIKE '%'||RIGHT(P.EARNINGCODEID,5)
+    					-- TIPO CONCEPTO: IMPORTE_COMISION
+    					AND B.IMPORTE_GRATIF <> 0
+    					AND NOT EXISTS (
+    					    SELECT 1 
+    					    FROM EXT.FINAL_REPEXT_FILE_TEST X 
+    					    WHERE X.POS_PRIN       = P.POS_PRIN
+    					      AND X.PERIODSEQ      = P.PERIODSEQ
+    					      AND X.EARNINGCODEID  = P.EARNINGCODEID
+    					      AND X.EARNINGGROUPID = P.EARNINGGROUPID
+    					      AND X.TIPO_DOCUMENTO = P.TIPO_DOCUMENTO
+    					      AND X.ORDERID        = B.ORDERID
+    					      AND X.LINENUMBER     = B.LINENUMBER
+    					      AND X.SUBLINENUMBER  = B.SUBLINENUMBER
+    					      AND X.EVENTTYPEID    = B.EVENTTYPEID
+    					);
+    	CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_FINAL_PAGOS_BASES_123_126_127_03_RT: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+    	
+    	UPDATE F
+    	SET ESTADO_REPARTO = CASE 
+    		WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 2
+			WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 3
+			ELSE 4 
+		END
+		FROM EXT.FINAL_REPEXT_PAGOS_FILE_TEST F
+		INNER JOIN :TEMP_FINAL_PAGOS_BASES_123_126_127_03_RT T ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+		AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID;
+		
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_PAGOS_FILE_TEST ESTADOS ACTUALIZADOS: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+		--LIQUIDACIÓN COMPLEMENTARIA
+		IF v_num_post > 1 AND i_tipo_reparto = 'CIERRE' THEN
+		
+			TEMP_PAGOS_DIRECTOS_123_126_127_03_RT_LC = SELECT SUM(IMPORTE) SUMA_PAGOS,PERIODSEQ,POS_PRIN,EARNINGGROUPID,EARNINGCODEID,DEPOSITO 
+				FROM :TEMP_FINAL_PAGOS_BASES_123_126_127_03_RT
+				WHERE TIPO_LIQ IN ('CIERRE','LIQ')
+				GROUP BY PERIODSEQ,POS_PRIN,EARNINGGROUPID,EARNINGCODEID,DEPOSITO;
+		
+			INSERT INTO EXT.FINAL_REPEXT_FILE_TEST("TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+		        ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+		        ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+		        ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ")
+		    SELECT "TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+		        ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE"*(-1),"TIPO_AGENTE","TIPO_DOCUMENTO",TF."EARNINGGROUPID"
+		        ,TF."EARNINGCODEID",TF.SUMA_IMPORTE,"DEPOSITSEQ",TF."DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+		        ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF",TF."POS_PRIN","POSITIONNAME","PERIODO",TF."PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ"
+		    FROM :TEMP_FINAL_PAGOS_BASES_123_126_127_03_RT TF 
+		    	INNER JOIN :TEMP_PAGOS_DIRECTOS_123_126_127_03_RT_LC TLC ON TF.PERIODSEQ = TLC.PERIODSEQ AND TF.POS_PRIN = TLC.POS_PRIN 
+		    	AND TF.EARNINGGROUPID = TLC.EARNINGGROUPID AND TF.EARNINGCODEID = TLC. EARNINGCODEID AND TF.DEPOSITO = TLC.DEPOSITO
+		    	AND 1 = (CASE WHEN SUMA_PAGOS <> SUMA_IMPORTE THEN 1 END); 
+		 END IF;
+    	-- FIN LIQUIDACIÓN COMPLEMENTARIA
+		
+		UPDATE F
+            SET ESTADO_REPARTO = CASE 
+    				WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 2
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 3
+					ELSE 4 
+				END --REPARTO CORRECTO
+			FROM :TEMP_REPEXT_PAGOS_REPARTO_FILE F
+			INNER JOIN :TEMP_FINAL_PAGOS_BASES_123_126_127_03_RT T ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+			AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+	--		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID
+			WHERE 1 = (CASE 
+    				WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 1
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+					ELSE 0 
+				END)
+			;
+        CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_REPEXT_PAGOS_REPARTO_FILE ESTADOS ACTUALIZADOS: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');   
+		
+		INSERT INTO EXT.FINAL_REPEXT_FILE_TEST("TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+            ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+            ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+            ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ")
+        SELECT "TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+            ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+            ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+            ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ"
+        FROM :TEMP_FINAL_PAGOS_BASES_123_126_127_03_RT
+        WHERE 1 = (
+        	CASE 
+        		WHEN (IMPORTE_PAGO - IFNULL(SUMA_IMPORTE,0)) = 0 THEN 1
+    			WHEN (IMPORTE_PAGO - IFNULL(SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+    		ELSE 0 
+    		END);
+		
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_FILE_TEST INSERTADOS: ' ||::ROWCOUNT, v_log_count, v_idproceso, 'info');	
+		---------------------------------------------------------------------------------------------------
+
+		TEMP_FINAL_PAGOS_BASES_123_126_127_03_RT_DIF =
+			SELECT T.PERIODSEQ,T.POS_PRIN,T.TIPO_DOCUMENTO,T.DEPOSITSEQ,T.EARNINGCODEID,T.EARNINGGROUPID,T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0) AS DIF,
+				T.ORDERID,T.LINENUMBER,T.SUBLINENUMBER,T.EVENTTYPEID, T.COMPENSATIONDATE,
+				ROW_NUMBER() OVER(
+                      		PARTITION BY T.PERIODSEQ,T.POS_PRIN,T.TIPO_DOCUMENTO,T.DEPOSITSEQ,T.EARNINGCODEID,T.EARNINGGROUPID
+                      		--ORDER BY T.ORDERID
+                      ) AS RN_TRX
+			FROM :TEMP_FINAL_PAGOS_BASES_123_126_127_03_RT T
+			WHERE 1 = (CASE 
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 0
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+					ELSE 0 
+				END)
+		;
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_FINAL_PAGOS_BASES_123_126_127_03_RT_DIF: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+		UPDATE F
+    	SET F.IMPORTE = F.IMPORTE + T.DIF
+    	FROM EXT.FINAL_REPEXT_FILE_TEST F
+    	INNER JOIN :TEMP_FINAL_PAGOS_BASES_123_126_127_03_RT_DIF T  ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+		AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID
+		AND F.ORDERID = T.ORDERID AND F.LINENUMBER = T.LINENUMBER AND F.SUBLINENUMBER = T.SUBLINENUMBER AND F.EVENTTYPEID = T.EVENTTYPEID AND F.COMPENSATIONDATE = T.COMPENSATIONDATE
+		AND T.RN_TRX = 1
+		;
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_FILE_TEST IMPORTE_DIF: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+
+		
+		
+		---------------------------------------------------------------------------------------------------
+		-- 123_126_127-03_RG	
+		---------------------------------------------------------------------------------------------------
+		--PAGOS
+		TEMP_PAGOS_DIRECTOS_123_126_127_03_RG = SELECT *
+    		FROM :TEMP_PAGOS_DIRECTOS
+    		WHERE SUBSTRING(EARNINGGROUPID,7,5) = '03-RG'
+    		AND (EARNINGCODEID LIKE  '123%' OR EARNINGCODEID LIKE  '126%' OR EARNINGCODEID LIKE  '127%');
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_PAGOS_DIRECTOS_123_126_127_03_RG: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+		--BASES
+		IF i_tipo_reparto = 'CIERRE' THEN
+			TEMP_BASES_123_126_127_03_RG = SELECT * 
+	    		FROM EXT.FINAL_BASES_REPARTO_POLIZA_FILE B
+	    		WHERE PERIODSEQ = i_periodSeq
+	    		-- EARNINGGROUPID = '03-RG'
+	    		-- AND PRODUCTID LIKE '03%' AND PRODUCTID NOT LIKE '032%'
+	    		-- EARNINGCODEID = '123_126_127'
+	    		AND EVENTTYPEID = '11';
+	    		
+	    	CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_BASES_123_126_127_03_RG: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+	    ELSE
+	    	TEMP_BASES_123_126_127_03_RG = SELECT * 
+	    		FROM EXT.FINAL_BASES_REPARTO_POLIZA_FILE_NUEVA_BASE_REPARTO B
+	    		WHERE PERIODSEQ = v_periodSeqAnterior
+	    		-- EARNINGGROUPID = '03-RG'
+	    		-- AND PRODUCTID LIKE '03%' AND PRODUCTID NOT LIKE '032%'
+	    		-- EARNINGCODEID = '123_126_127'
+	    		AND EVENTTYPEID = '11';
+	    		
+	    	CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_BASES_123_126_127_03_RG (BALANCE): ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+	    END IF;
+    	
+   -- 	--BASES_TOTAL_IMPORTE
+   -- 	BASES_TOTAL_IMPORTE_123_126_127_03_RG = 
+			-- SELECT POSITIONSEQ, SUM(IMPORTE_GRATIF) AS SUMA_IMPORTE
+			-- FROM :TEMP_BASES_123_126_127_03_RG
+			-- WHERE IMPORTE_GRATIF <> 0
+			-- GROUP BY POSITIONSEQ;
+			
+			
+    	--FINAL
+    	TEMP_FINAL_PAGOS_BASES_123_126_127_03_RG = SELECT P.PARTICIPANTSEQ,
+                                P.POSITIONSEQ,
+                                P.PERIODSEQ,
+                                :v_periodName AS PERIODO,
+                                P.POS_CALLIDUS POSITIONNAME,
+                                P.POS_PRIN,
+                                P.NIF,
+                                P.MANAGER_POS_PRIN,
+                                ORDERID,
+                                LINENUMBER,
+                                SUBLINENUMBER,
+                                EVENTTYPEID,
+                                PRODUCTID,
+                                CODIGO_POLIZA,
+                                COMPENSATIONDATE,
+                                ESTADO,
+                                P.PROGRAMA,
+                                P.TIPO_PAGO,
+                                P.DEPOSITO,
+                                P.DEPOSITSEQ,
+                                P.IMPORTE IMPORTE_PAGO,
+                                P.EARNINGCODEID,
+                                P.EARNINGGROUPID,
+                                P.TIPO_DOCUMENTO,
+                                P.TIPO_AGENTE,
+                                B.IMPORTE_GRATIF AS IMPORTE,
+                                (SELECT SUM(IMPORTE_GRATIF)
+                                	FROM :TEMP_BASES_123_126_127_03_RG S
+                                	WHERE S.POSITIONSEQ = B.POSITIONSEQ
+                                	AND S.PRODUCTID LIKE '%'||RIGHT(P.EARNINGCODEID,5)
+                                ) AS SUMA_IMPORTE,
+                                NULL AS TIPO_REPARTO,
+                                0 AS NUM_TRAMO,
+                                NULL AS REPARTO_TIPO_BASE,
+                                NULL AS REPARTO_PORCENTAJE,
+                                POLIZA_FISICA,
+                                POLIZA_CORREGIDA,
+                                PRIMA_CORREGIDA,
+                                PRIMA_NETA,
+                                PRIMA_NETA_ANUAL,
+                                PRIMA_COMIS_S4 PRIMA_COMIS,
+                                NULL AS COEF_TIPO_BASE,
+                                NULL AS COEF_CORRECTOR,
+                                COD_AGENTE,
+                                P.TIPO_LIQ
+    					FROM :TEMP_PAGOS_DIRECTOS_123_126_127_03_RG P
+    					INNER JOIN :TEMP_BASES_123_126_127_03_RG B ON P.POSITIONSEQ = B.POSITIONSEQ
+    					--INNER JOIN :BASES_TOTAL_IMPORTE_123_126_127_03_RG BT ON BT.POSITIONSEQ = B.POSITIONSEQ
+    					WHERE 
+    					PRODUCTID LIKE '%'||RIGHT(P.EARNINGCODEID,5)
+    					-- TIPO CONCEPTO: IMPORTE_COMISION
+    					AND B.IMPORTE_GRATIF <> 0
+    					AND NOT EXISTS (
+    					    SELECT 1 
+    					    FROM EXT.FINAL_REPEXT_FILE_TEST X 
+    					    WHERE X.POS_PRIN       = P.POS_PRIN
+    					      AND X.PERIODSEQ      = P.PERIODSEQ
+    					      AND X.EARNINGCODEID  = P.EARNINGCODEID
+    					      AND X.EARNINGGROUPID = P.EARNINGGROUPID
+    					      AND X.TIPO_DOCUMENTO = P.TIPO_DOCUMENTO
+    					      AND X.ORDERID        = B.ORDERID
+    					      AND X.LINENUMBER     = B.LINENUMBER
+    					      AND X.SUBLINENUMBER  = B.SUBLINENUMBER
+    					      AND X.EVENTTYPEID    = B.EVENTTYPEID
+    					);
+    					
+    	CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_FINAL_PAGOS_BASES_123_126_127_03_RG: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+    	
+    	--LIQUIDACIÓN COMPLEMENTARIA
+		IF v_num_post > 1 AND i_tipo_reparto = 'CIERRE' THEN
+		
+			TEMP_PAGOS_DIRECTOS_123_126_127_03_RG_LC = SELECT SUM(IMPORTE) SUMA_PAGOS,PERIODSEQ,POS_PRIN,EARNINGGROUPID,EARNINGCODEID,DEPOSITO 
+				FROM :TEMP_FINAL_PAGOS_BASES_123_126_127_03_RG
+				WHERE TIPO_LIQ IN ('CIERRE','LIQ')
+				GROUP BY PERIODSEQ,POS_PRIN,EARNINGGROUPID,EARNINGCODEID,DEPOSITO;
+		
+			INSERT INTO EXT.FINAL_REPEXT_FILE_TEST("TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+		        ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+		        ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+		        ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ")
+		    SELECT "TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+		        ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE"*(-1),"TIPO_AGENTE","TIPO_DOCUMENTO",TF."EARNINGGROUPID"
+		        ,TF."EARNINGCODEID",TF.SUMA_IMPORTE,"DEPOSITSEQ",TF."DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+		        ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF",TF."POS_PRIN","POSITIONNAME","PERIODO",TF."PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ"
+		    FROM :TEMP_FINAL_PAGOS_BASES_123_126_127_03_RG TF 
+		    	INNER JOIN :TEMP_PAGOS_DIRECTOS_123_126_127_03_RG_LC TLC ON TF.PERIODSEQ = TLC.PERIODSEQ AND TF.POS_PRIN = TLC.POS_PRIN 
+		    	AND TF.EARNINGGROUPID = TLC.EARNINGGROUPID AND TF.EARNINGCODEID = TLC. EARNINGCODEID AND TF.DEPOSITO = TLC.DEPOSITO
+		    	AND 1 = (CASE WHEN SUMA_PAGOS <> SUMA_IMPORTE THEN 1 END); 
+		 END IF;
+    	-- FIN LIQUIDACIÓN COMPLEMENTARIA
+    	
+    	UPDATE F
+    	SET ESTADO_REPARTO = CASE 
+    		WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 2
+			WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 3
+			ELSE 4 
+		END
+		FROM EXT.FINAL_REPEXT_PAGOS_FILE_TEST F
+		INNER JOIN :TEMP_FINAL_PAGOS_BASES_123_126_127_03_RG T ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+		AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID;
+		
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_PAGOS_FILE_TEST ESTADOS ACTUALIZADOS: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+		
+		UPDATE F
+            SET ESTADO_REPARTO = CASE 
+    				WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 2
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 3
+					ELSE 4 
+				END --REPARTO CORRECTO
+			FROM :TEMP_REPEXT_PAGOS_REPARTO_FILE F
+			INNER JOIN :TEMP_FINAL_PAGOS_BASES_123_126_127_03_RG T ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+			AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+	--		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID
+			WHERE 1 = (CASE 
+    				WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 1
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+					ELSE 0 
+				END)
+			;
+        CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_REPEXT_PAGOS_REPARTO_FILE ESTADOS ACTUALIZADOS: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');   
+	
+		INSERT INTO EXT.FINAL_REPEXT_FILE_TEST("TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+            ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+            ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+            ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ")
+        SELECT "TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+            ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+            ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+            ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ"
+        FROM :TEMP_FINAL_PAGOS_BASES_123_126_127_03_RG
+        WHERE 1 = (
+        	CASE 
+        		WHEN (IMPORTE_PAGO - IFNULL(SUMA_IMPORTE,0)) = 0 THEN 1
+    			WHEN (IMPORTE_PAGO - IFNULL(SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+    		ELSE 0 
+    		END);
+
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_FILE_TEST INSERTADOS: ' ||::ROWCOUNT, v_log_count, v_idproceso, 'info');	        
+ -------------------------------------------------------------------------------------------------------
+
+		TEMP_FINAL_PAGOS_BASES_123_126_127_03_RG_DIF =
+			SELECT T.PERIODSEQ,T.POS_PRIN,T.TIPO_DOCUMENTO,T.DEPOSITSEQ,T.EARNINGCODEID,T.EARNINGGROUPID,T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0) AS DIF,
+				T.ORDERID,T.LINENUMBER,T.SUBLINENUMBER,T.EVENTTYPEID, T.COMPENSATIONDATE,
+				ROW_NUMBER() OVER(
+                      		PARTITION BY T.PERIODSEQ,T.POS_PRIN,T.TIPO_DOCUMENTO,T.DEPOSITSEQ,T.EARNINGCODEID,T.EARNINGGROUPID
+                      		--ORDER BY T.ORDERID
+                      ) AS RN_TRX
+			FROM :TEMP_FINAL_PAGOS_BASES_123_126_127_03_RG T
+			WHERE 1 = (CASE 
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 0
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+					ELSE 0 
+				END)
+		;
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_FINAL_PAGOS_BASES_123_126_127_03_RG_DIF: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+		UPDATE F
+    	SET F.IMPORTE = F.IMPORTE + T.DIF
+    	FROM EXT.FINAL_REPEXT_FILE_TEST F
+    	INNER JOIN :TEMP_FINAL_PAGOS_BASES_123_126_127_03_RG_DIF T  ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+		AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID
+		AND F.ORDERID = T.ORDERID AND F.LINENUMBER = T.LINENUMBER AND F.SUBLINENUMBER = T.SUBLINENUMBER AND F.EVENTTYPEID = T.EVENTTYPEID AND F.COMPENSATIONDATE = T.COMPENSATIONDATE
+		AND T.RN_TRX = 1
+		;
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_FILE_TEST IMPORTE_DIF: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+
+
+        ---------------------------------------------------------------------------------------------------
+		-- 124_125-01_RT	
+		---------------------------------------------------------------------------------------------------
+		--PAGOS
+		TEMP_PAGOS_DIRECTOS_124_125_01_RT = SELECT *
+    		FROM :TEMP_PAGOS_DIRECTOS
+    		WHERE SUBSTRING(EARNINGGROUPID,7,5) = '01-RT'
+    		AND (EARNINGCODEID LIKE  '124%' OR EARNINGCODEID LIKE  '125%');
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_PAGOS_DIRECTOS_124_125_01_RT: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+		--BASES
+		IF i_tipo_reparto = 'CIERRE' THEN
+			TEMP_BASES_124_125_01_RT = SELECT * 
+	    		FROM EXT.FINAL_BASES_REPARTO_POLIZA_FILE B
+	    		WHERE PERIODSEQ = i_periodSeq
+	    		-- EARNINGGROUPID = '01-RT'
+	    		-- EARNINGCODEID = '124_125'
+	    		AND EVENTTYPEID = '11';
+	    		
+	    	CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_BASES_124_125_01_RT: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+	    ELSE
+	    	TEMP_BASES_124_125_01_RT = SELECT * 
+    		FROM EXT.FINAL_BASES_REPARTO_POLIZA_FILE_NUEVA_BASE_REPARTO B
+    		WHERE PERIODSEQ = v_periodSeqAnterior
+    		-- EARNINGGROUPID = '01-RT'
+    		-- EARNINGCODEID = '124_125'
+    		AND EVENTTYPEID = '11';
+    		
+    		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_BASES_124_125_01_RT (BALANCE): ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+    	END IF;
+    	
+   -- 	--BASES_TOTAL_IMPORTE
+   -- 	BASES_TOTAL_IMPORTE_124_125_01_RT = 
+			-- SELECT POSITIONSEQ, SUM(IMPORTE_COMISION) AS SUMA_IMPORTE
+			-- FROM :TEMP_BASES_124_125_01_RT
+			-- WHERE IMPORTE_COMISION <> 0
+			-- GROUP BY POSITIONSEQ;
+     
+    	
+    	--FINAL
+    	TEMP_FINAL_PAGOS_BASES_124_125_01_RT = SELECT P.PARTICIPANTSEQ,
+                                P.POSITIONSEQ,
+                                P.PERIODSEQ,
+                                :v_periodName AS PERIODO,
+                                P.POS_CALLIDUS POSITIONNAME,
+                                P.POS_PRIN,
+                                P.NIF,
+                                P.MANAGER_POS_PRIN,
+                                ORDERID,
+                                LINENUMBER,
+                                SUBLINENUMBER,
+                                EVENTTYPEID,
+                                PRODUCTID,
+                                CODIGO_POLIZA,
+                                COMPENSATIONDATE,
+                                ESTADO,
+                                P.PROGRAMA,
+                                P.TIPO_PAGO,
+                                P.DEPOSITO,
+                                P.DEPOSITSEQ,
+                                P.IMPORTE IMPORTE_PAGO,
+                                P.EARNINGCODEID,
+                                P.EARNINGGROUPID,
+                                P.TIPO_DOCUMENTO,
+                                P.TIPO_AGENTE,
+                                B.IMPORTE_COMISION AS IMPORTE,
+                                (SELECT SUM(IMPORTE_COMISION)
+                                	FROM :TEMP_BASES_124_125_01_RT S
+                                	WHERE S.POSITIONSEQ = B.POSITIONSEQ
+                                	AND S.PRODUCTID LIKE '%'||RIGHT(P.EARNINGCODEID,5)
+                                ) AS SUMA_IMPORTE,
+                                NULL AS TIPO_REPARTO,
+                                0 AS NUM_TRAMO,
+                                NULL AS REPARTO_TIPO_BASE,
+                                NULL AS REPARTO_PORCENTAJE,
+                                POLIZA_FISICA,
+                                POLIZA_CORREGIDA,
+                                PRIMA_CORREGIDA,
+                                PRIMA_NETA,
+                                PRIMA_NETA_ANUAL,
+                                PRIMA_COMIS_S4 PRIMA_COMIS,
+                                NULL AS COEF_TIPO_BASE,
+                                NULL AS COEF_CORRECTOR,
+                                COD_AGENTE,
+                                P.TIPO_LIQ
+    					FROM :TEMP_PAGOS_DIRECTOS_124_125_01_RT P
+    					INNER JOIN :TEMP_BASES_124_125_01_RT B ON P.POSITIONSEQ = B.POSITIONSEQ
+    					--INNER JOIN :BASES_TOTAL_IMPORTE_124_125_01_RT BT ON BT.POSITIONSEQ = B.POSITIONSEQ
+    					WHERE 
+    					PRODUCTID LIKE '%'||RIGHT(P.EARNINGCODEID,5)
+    					-- TIPO CONCEPTO: IMPORTE_COMISION
+    					AND B.IMPORTE_COMISION <> 0
+    					AND NOT EXISTS (
+    					    SELECT 1 
+    					    FROM EXT.FINAL_REPEXT_FILE_TEST X 
+    					    WHERE X.POS_PRIN       = P.POS_PRIN
+    					      AND X.PERIODSEQ      = P.PERIODSEQ
+    					      AND X.EARNINGCODEID  = P.EARNINGCODEID
+    					      AND X.EARNINGGROUPID = P.EARNINGGROUPID
+    					      AND X.TIPO_DOCUMENTO = P.TIPO_DOCUMENTO
+    					      AND X.ORDERID        = B.ORDERID
+    					      AND X.LINENUMBER     = B.LINENUMBER
+    					      AND X.SUBLINENUMBER  = B.SUBLINENUMBER
+    					      AND X.EVENTTYPEID    = B.EVENTTYPEID
+    					);
+    					
+    	CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_FINAL_PAGOS_BASES_124_125_01_RT: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+    	
+    	--LIQUIDACIÓN COMPLEMENTARIA
+		IF v_num_post > 1 AND i_tipo_reparto = 'CIERRE' THEN
+		
+			TEMP_PAGOS_DIRECTOS_124_125_01_RT_LC = SELECT SUM(IMPORTE) SUMA_PAGOS,PERIODSEQ,POS_PRIN,EARNINGGROUPID,EARNINGCODEID,DEPOSITO 
+				FROM :TEMP_FINAL_PAGOS_BASES_124_125_01_RT
+				WHERE TIPO_LIQ IN ('CIERRE','LIQ')
+				GROUP BY PERIODSEQ,POS_PRIN,EARNINGGROUPID,EARNINGCODEID,DEPOSITO;
+		
+			INSERT INTO EXT.FINAL_REPEXT_FILE_TEST("TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+		        ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+		        ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+		        ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ")
+		    SELECT "TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+		        ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE"*(-1),"TIPO_AGENTE","TIPO_DOCUMENTO",TF."EARNINGGROUPID"
+		        ,TF."EARNINGCODEID",TF.SUMA_IMPORTE,"DEPOSITSEQ",TF."DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+		        ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF",TF."POS_PRIN","POSITIONNAME","PERIODO",TF."PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ"
+		    FROM :TEMP_FINAL_PAGOS_BASES_124_125_01_RT TF 
+		    	INNER JOIN :TEMP_PAGOS_DIRECTOS_124_125_01_RT_LC TLC ON TF.PERIODSEQ = TLC.PERIODSEQ AND TF.POS_PRIN = TLC.POS_PRIN 
+		    	AND TF.EARNINGGROUPID = TLC.EARNINGGROUPID AND TF.EARNINGCODEID = TLC. EARNINGCODEID AND TF.DEPOSITO = TLC.DEPOSITO
+		    	AND 1 = (CASE WHEN SUMA_PAGOS <> SUMA_IMPORTE THEN 1 END); 
+		 END IF;
+    	-- FIN LIQUIDACIÓN COMPLEMENTARIA
+    	
+    	UPDATE F
+    	SET ESTADO_REPARTO = CASE 
+    		WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 2
+			WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 3
+			ELSE 4 
+		END
+		FROM EXT.FINAL_REPEXT_PAGOS_FILE_TEST F
+		INNER JOIN :TEMP_FINAL_PAGOS_BASES_124_125_01_RT T ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+		AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID;
+		
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_PAGOS_FILE_TEST ESTADOS ACTUALIZADOS: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+		
+		UPDATE F
+            SET ESTADO_REPARTO = CASE 
+    				WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 2
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 3
+					ELSE 4 
+				END --REPARTO CORRECTO
+			FROM :TEMP_REPEXT_PAGOS_REPARTO_FILE F
+			INNER JOIN :TEMP_FINAL_PAGOS_BASES_124_125_01_RT T ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+			AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+			WHERE 1 = (CASE 
+    				WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 1
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+					ELSE 0 
+				END)
+	--		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID
+			;
+        CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_REPEXT_PAGOS_REPARTO_FILE ESTADOS ACTUALIZADOS: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');   
+                                   
+		
+		INSERT INTO EXT.FINAL_REPEXT_FILE_TEST("TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+            ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+            ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+            ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ")
+        SELECT "TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+            ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+            ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+            ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ"
+        FROM :TEMP_FINAL_PAGOS_BASES_124_125_01_RT
+        WHERE 1 = (
+        	CASE 
+        		WHEN (IMPORTE_PAGO - IFNULL(SUMA_IMPORTE,0)) = 0 THEN 1
+    			WHEN (IMPORTE_PAGO - IFNULL(SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+    		ELSE 0 
+    		END);
+			
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_FILE_TEST INSERTADOS: ' ||::ROWCOUNT, v_log_count, v_idproceso, 'info');				
+		---------------------------------------------------------------------------------------------------
+
+		TEMP_FINAL_PAGOS_BASES_124_125_01_RT_DIF =
+			SELECT T.PERIODSEQ,T.POS_PRIN,T.TIPO_DOCUMENTO,T.DEPOSITSEQ,T.EARNINGCODEID,T.EARNINGGROUPID,T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0) AS DIF,
+				T.ORDERID,T.LINENUMBER,T.SUBLINENUMBER,T.EVENTTYPEID, T.COMPENSATIONDATE,
+				ROW_NUMBER() OVER(
+                      		PARTITION BY T.PERIODSEQ,T.POS_PRIN,T.TIPO_DOCUMENTO,T.DEPOSITSEQ,T.EARNINGCODEID,T.EARNINGGROUPID
+                      		--ORDER BY T.ORDERID
+                      ) AS RN_TRX
+			FROM :TEMP_FINAL_PAGOS_BASES_124_125_01_RT T
+			WHERE 1 = (CASE 
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 0
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+					ELSE 0 
+				END)
+		;
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_FINAL_PAGOS_BASES_124_125_01_RT_DIF: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+		UPDATE F
+    	SET F.IMPORTE = F.IMPORTE + T.DIF
+    	FROM EXT.FINAL_REPEXT_FILE_TEST F
+    	INNER JOIN :TEMP_FINAL_PAGOS_BASES_124_125_01_RT_DIF T  ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+		AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID
+		AND F.ORDERID = T.ORDERID AND F.LINENUMBER = T.LINENUMBER AND F.SUBLINENUMBER = T.SUBLINENUMBER AND F.EVENTTYPEID = T.EVENTTYPEID AND F.COMPENSATIONDATE = T.COMPENSATIONDATE
+		AND T.RN_TRX = 1
+		;
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_FILE_TEST IMPORTE_DIF: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+		
+		
+		
+		---------------------------------------------------------------------------------------------------
+		-- 124_125-01_RG	
+		---------------------------------------------------------------------------------------------------
+		--PAGOS
+		TEMP_PAGOS_DIRECTOS_124_125_01_RG = SELECT *
+    		FROM :TEMP_PAGOS_DIRECTOS
+    		WHERE SUBSTRING(EARNINGGROUPID,7,5) = '01-RG'
+    		AND (EARNINGCODEID LIKE  '124%' OR EARNINGCODEID LIKE  '125%');
+    		
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_PAGOS_DIRECTOS_124_125_01_RG: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+		--BASES
+		IF i_tipo_reparto = 'CIERRE' THEN
+			TEMP_BASES_124_125_01_RG = SELECT * 
+	    		FROM EXT.FINAL_BASES_REPARTO_POLIZA_FILE B
+	    		WHERE PERIODSEQ = i_periodSeq
+	    		-- EARNINGGROUPID = '01-RG'
+	    		-- AND PRODUCTID LIKE '01%' AND PRODUCTID NOT LIKE '012%'
+	    		-- EARNINGCODEID = '124_125'
+	    		AND EVENTTYPEID = '11';
+	    		
+	    	CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_BASES_124_125_01_RG: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+	    ELSE
+	    	TEMP_BASES_124_125_01_RG = SELECT * 
+    		FROM EXT.FINAL_BASES_REPARTO_POLIZA_FILE_NUEVA_BASE_REPARTO B
+    		WHERE PERIODSEQ = v_periodSeqAnterior
+    		-- EARNINGGROUPID = '01-RG'
+    		-- AND PRODUCTID LIKE '01%' AND PRODUCTID NOT LIKE '012%'
+    		-- EARNINGCODEID = '124_125'
+    		AND EVENTTYPEID = '11';
+    		
+    		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_BASES_124_125_01_RG (BALANCE): ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+    	END IF;
+    	
+   -- 	--BASES_TOTAL_IMPORTE
+   -- 	BASES_TOTAL_IMPORTE_124_125_01_RG = 
+			-- SELECT POSITIONSEQ, SUM(IMPORTE_COMISION) AS SUMA_IMPORTE
+			-- FROM :TEMP_BASES_124_125_01_RG
+			-- WHERE IMPORTE_COMISION <> 0
+			-- GROUP BY POSITIONSEQ;
+			
+    	
+    	--FINAL
+    	TEMP_FINAL_PAGOS_BASES_124_125_01_RG = SELECT P.PARTICIPANTSEQ,
+                                P.POSITIONSEQ,
+                                P.PERIODSEQ,
+                                :v_periodName AS PERIODO,
+                                P.POS_CALLIDUS POSITIONNAME,
+                                P.POS_PRIN,
+                                P.NIF,
+                                P.MANAGER_POS_PRIN,
+                                ORDERID,
+                                LINENUMBER,
+                                SUBLINENUMBER,
+                                EVENTTYPEID,
+                                PRODUCTID,
+                                CODIGO_POLIZA,
+                                COMPENSATIONDATE,
+                                ESTADO,
+                                P.PROGRAMA,
+                                P.TIPO_PAGO,
+                                P.DEPOSITO,
+                                P.DEPOSITSEQ,
+                                P.IMPORTE IMPORTE_PAGO,
+                                P.EARNINGCODEID,
+                                P.EARNINGGROUPID,
+                                P.TIPO_DOCUMENTO,
+                                P.TIPO_AGENTE,
+                                B.IMPORTE_COMISION AS IMPORTE,
+                                (SELECT SUM(IMPORTE_COMISION)
+                                	FROM :TEMP_BASES_124_125_01_RG S
+                                	WHERE S.POSITIONSEQ = B.POSITIONSEQ
+                                	AND S.PRODUCTID LIKE '%'||RIGHT(P.EARNINGCODEID,5)
+                                ) AS SUMA_IMPORTE,
+                                NULL AS TIPO_REPARTO,
+                                0 AS NUM_TRAMO,
+                                NULL AS REPARTO_TIPO_BASE,
+                                NULL AS REPARTO_PORCENTAJE,
+                                POLIZA_FISICA,
+                                POLIZA_CORREGIDA,
+                                PRIMA_CORREGIDA,
+                                PRIMA_NETA,
+                                PRIMA_NETA_ANUAL,
+                                PRIMA_COMIS_S4 PRIMA_COMIS,
+                                NULL AS COEF_TIPO_BASE,
+                                NULL AS COEF_CORRECTOR,
+                                COD_AGENTE,
+                                P.TIPO_LIQ
+    					FROM :TEMP_PAGOS_DIRECTOS_124_125_01_RG P
+    					INNER JOIN :TEMP_BASES_124_125_01_RG B ON P.POSITIONSEQ = B.POSITIONSEQ
+    					--INNER JOIN :BASES_TOTAL_IMPORTE_124_125_01_RG BT ON BT.POSITIONSEQ = B.POSITIONSEQ
+    					WHERE 
+    					PRODUCTID LIKE '%'||RIGHT(P.EARNINGCODEID,5)
+    					-- TIPO CONCEPTO: IMPORTE_COMISION
+    					AND B.IMPORTE_COMISION <> 0
+    					AND NOT EXISTS (
+    					    SELECT 1 
+    					    FROM EXT.FINAL_REPEXT_FILE_TEST X 
+    					    WHERE X.POS_PRIN       = P.POS_PRIN
+    					      AND X.PERIODSEQ      = P.PERIODSEQ
+    					      AND X.EARNINGCODEID  = P.EARNINGCODEID
+    					      AND X.EARNINGGROUPID = P.EARNINGGROUPID
+    					      AND X.TIPO_DOCUMENTO = P.TIPO_DOCUMENTO
+    					      AND X.ORDERID        = B.ORDERID
+    					      AND X.LINENUMBER     = B.LINENUMBER
+    					      AND X.SUBLINENUMBER  = B.SUBLINENUMBER
+    					      AND X.EVENTTYPEID    = B.EVENTTYPEID
+    					);
+    					
+    	CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_FINAL_PAGOS_BASES_124_125_01_RG: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+    	
+    	--LIQUIDACIÓN COMPLEMENTARIA
+		IF v_num_post > 1 AND i_tipo_reparto = 'CIERRE' THEN
+		
+			TEMP_PAGOS_DIRECTOS_124_125_01_RG_LC = SELECT SUM(IMPORTE) SUMA_PAGOS,PERIODSEQ,POS_PRIN,EARNINGGROUPID,EARNINGCODEID,DEPOSITO 
+				FROM :TEMP_FINAL_PAGOS_BASES_124_125_01_RG
+				WHERE TIPO_LIQ IN ('CIERRE','LIQ')
+				GROUP BY PERIODSEQ,POS_PRIN,EARNINGGROUPID,EARNINGCODEID,DEPOSITO;
+		
+			INSERT INTO EXT.FINAL_REPEXT_FILE_TEST("TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+		        ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+		        ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+		        ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ")
+		    SELECT "TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+		        ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE"*(-1),"TIPO_AGENTE","TIPO_DOCUMENTO",TF."EARNINGGROUPID"
+		        ,TF."EARNINGCODEID",TF.SUMA_IMPORTE,"DEPOSITSEQ",TF."DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+		        ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF",TF."POS_PRIN","POSITIONNAME","PERIODO",TF."PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ"
+		    FROM :TEMP_FINAL_PAGOS_BASES_124_125_01_RG TF 
+		    	INNER JOIN :TEMP_PAGOS_DIRECTOS_124_125_01_RG_LC TLC ON TF.PERIODSEQ = TLC.PERIODSEQ AND TF.POS_PRIN = TLC.POS_PRIN 
+		    	AND TF.EARNINGGROUPID = TLC.EARNINGGROUPID AND TF.EARNINGCODEID = TLC. EARNINGCODEID AND TF.DEPOSITO = TLC.DEPOSITO
+		    	AND 1 = (CASE WHEN SUMA_PAGOS <> SUMA_IMPORTE THEN 1 END); 
+		 END IF;
+    	-- FIN LIQUIDACIÓN COMPLEMENTARIA
+    	
+    	UPDATE F
+    	SET ESTADO_REPARTO = CASE 
+    		WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 2
+			WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 3
+			ELSE 4 
+		END
+		FROM EXT.FINAL_REPEXT_PAGOS_FILE_TEST F
+		INNER JOIN :TEMP_FINAL_PAGOS_BASES_124_125_01_RG T ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+		AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID;
+		
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_PAGOS_FILE_TEST ESTADOS ACTUALIZADOS: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+		
+		UPDATE F
+            SET ESTADO_REPARTO = CASE 
+    				WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 2
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 3
+					ELSE 4 
+				END --REPARTO CORRECTO
+			FROM :TEMP_REPEXT_PAGOS_REPARTO_FILE F
+			INNER JOIN :TEMP_FINAL_PAGOS_BASES_124_125_01_RG T ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+			AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+	--		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID
+			WHERE 1 = (CASE 
+    				WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 1
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+					ELSE 0 
+				END)
+			;
+        CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_REPEXT_PAGOS_REPARTO_FILE ESTADOS ACTUALIZADOS: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');   
+		
+		INSERT INTO EXT.FINAL_REPEXT_FILE_TEST("TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+            ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+            ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+            ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ")
+        SELECT "TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+            ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+            ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+            ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ"
+        FROM :TEMP_FINAL_PAGOS_BASES_124_125_01_RG
+        WHERE 1 = (
+        	CASE 
+        		WHEN (IMPORTE_PAGO - IFNULL(SUMA_IMPORTE,0)) = 0 THEN 1
+    			WHEN (IMPORTE_PAGO - IFNULL(SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+    		ELSE 0 
+    		END);
+
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_FILE_TEST INSERTADOS: ' ||::ROWCOUNT, v_log_count, v_idproceso, 'info');			
+		---------------------------------------------------------------------------------------------------
+
+		TEMP_FINAL_PAGOS_BASES_124_125_01_RG_DIF =
+			SELECT T.PERIODSEQ,T.POS_PRIN,T.TIPO_DOCUMENTO,T.DEPOSITSEQ,T.EARNINGCODEID,T.EARNINGGROUPID,T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0) AS DIF,
+				T.ORDERID,T.LINENUMBER,T.SUBLINENUMBER,T.EVENTTYPEID, T.COMPENSATIONDATE,
+				ROW_NUMBER() OVER(
+                      		PARTITION BY T.PERIODSEQ,T.POS_PRIN,T.TIPO_DOCUMENTO,T.DEPOSITSEQ,T.EARNINGCODEID,T.EARNINGGROUPID
+                      		--ORDER BY T.ORDERID
+                      ) AS RN_TRX
+			FROM :TEMP_FINAL_PAGOS_BASES_124_125_01_RG T
+			WHERE 1 = (CASE 
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 0
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+					ELSE 0 
+				END)
+		;
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_FINAL_PAGOS_BASES_124_125_01_RG_DIF: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+		UPDATE F
+    	SET F.IMPORTE = F.IMPORTE + T.DIF
+    	FROM EXT.FINAL_REPEXT_FILE_TEST F
+    	INNER JOIN :TEMP_FINAL_PAGOS_BASES_124_125_01_RG_DIF T  ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+		AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID
+		AND F.ORDERID = T.ORDERID AND F.LINENUMBER = T.LINENUMBER AND F.SUBLINENUMBER = T.SUBLINENUMBER AND F.EVENTTYPEID = T.EVENTTYPEID AND F.COMPENSATIONDATE = T.COMPENSATIONDATE
+		AND T.RN_TRX = 1
+		;
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_FILE_TEST IMPORTE_DIF: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+
+		
+		
+		
+		---------------------------------------------------------------------------------------------------
+		-- 124_125-03_RT	
+		---------------------------------------------------------------------------------------------------
+		--PAGOS
+		TEMP_PAGOS_DIRECTOS_124_125_03_RT = SELECT *
+    		FROM :TEMP_PAGOS_DIRECTOS
+    		WHERE SUBSTRING(EARNINGGROUPID,7,5) = '03-RT'
+    		AND (EARNINGCODEID LIKE  '124%' OR EARNINGCODEID LIKE  '125%');
+    		
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_PAGOS_DIRECTOS_124_125_03_RT: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+		--BASES
+		IF i_tipo_reparto = 'CIERRE' THEN
+			TEMP_BASES_124_125_03_RT = SELECT * 
+	    		FROM EXT.FINAL_BASES_REPARTO_POLIZA_FILE B
+	    		WHERE PERIODSEQ = i_periodSeq
+	    		-- EARNINGGROUPID = '01-RT'
+	    		-- AND PRODUCTID LIKE '032%'
+	    		-- EARNINGCODEID = '124_125'
+	    		AND EVENTTYPEID = '11';
+	    		
+	    	CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_BASES_124_125_03_RT: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+	    ELSE
+	    	TEMP_BASES_124_125_03_RT = SELECT * 
+	    		FROM EXT.FINAL_BASES_REPARTO_POLIZA_FILE_NUEVA_BASE_REPARTO B
+	    		WHERE PERIODSEQ = v_periodSeqAnterior
+	    		-- EARNINGGROUPID = '01-RT'
+	    		-- AND PRODUCTID LIKE '032%'
+	    		-- EARNINGCODEID = '124_125'
+	    		AND EVENTTYPEID = '11';
+	    		
+	    	CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_BASES_124_125_03_RT (BALANCE): ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+	    END IF;
+	    
+    	
+   -- 	--BASES_TOTAL_IMPORTE
+   -- 	BASES_TOTAL_IMPORTE_124_125_03_RT = 
+			-- SELECT POSITIONSEQ, SUM(IMPORTE_COMISION) AS SUMA_IMPORTE
+			-- FROM :TEMP_BASES_124_125_03_RT
+			-- WHERE IMPORTE_COMISION <> 0
+			-- GROUP BY POSITIONSEQ;
+			
+			
+    	--FINAL
+    	TEMP_FINAL_PAGOS_BASES_124_125_03_RT = SELECT P.PARTICIPANTSEQ,
+                                P.POSITIONSEQ,
+                                P.PERIODSEQ,
+                                :v_periodName AS PERIODO,
+                                P.POS_CALLIDUS POSITIONNAME,
+                                P.POS_PRIN,
+                                P.NIF,
+                                P.MANAGER_POS_PRIN,
+                                ORDERID,
+                                LINENUMBER,
+                                SUBLINENUMBER,
+                                EVENTTYPEID,
+                                PRODUCTID,
+                                CODIGO_POLIZA,
+                                COMPENSATIONDATE,
+                                ESTADO,
+                                P.PROGRAMA,
+                                P.TIPO_PAGO,
+                                P.DEPOSITO,
+                                P.DEPOSITSEQ,
+                                P.IMPORTE IMPORTE_PAGO,
+                                P.EARNINGCODEID,
+                                P.EARNINGGROUPID,
+                                P.TIPO_DOCUMENTO,
+                                P.TIPO_AGENTE,
+                                B.IMPORTE_COMISION AS IMPORTE,
+                                (SELECT SUM(IMPORTE_COMISION)
+                                	FROM :TEMP_BASES_124_125_03_RT S
+                                	WHERE S.POSITIONSEQ = B.POSITIONSEQ
+                                	AND S.PRODUCTID LIKE '%'||RIGHT(P.EARNINGCODEID,5)
+                                ) AS SUMA_IMPORTE,
+                                NULL AS TIPO_REPARTO,
+                                0 AS NUM_TRAMO,
+                                NULL AS REPARTO_TIPO_BASE,
+                                NULL AS REPARTO_PORCENTAJE,
+                                POLIZA_FISICA,
+                                POLIZA_CORREGIDA,
+                                PRIMA_CORREGIDA,
+                                PRIMA_NETA,
+                                PRIMA_NETA_ANUAL,
+                                PRIMA_COMIS_S4 PRIMA_COMIS,
+                                NULL AS COEF_TIPO_BASE,
+                                NULL AS COEF_CORRECTOR,
+                                COD_AGENTE,
+                                P.TIPO_LIQ
+    					FROM :TEMP_PAGOS_DIRECTOS_124_125_03_RT P
+    					INNER JOIN :TEMP_BASES_124_125_03_RT B ON P.POSITIONSEQ = B.POSITIONSEQ
+    					--INNER JOIN :BASES_TOTAL_IMPORTE_124_125_03_RT BT ON BT.POSITIONSEQ = B.POSITIONSEQ
+    					WHERE 
+    					PRODUCTID LIKE '%'||RIGHT(P.EARNINGCODEID,5)
+    					-- TIPO CONCEPTO: IMPORTE_COMISION
+    					AND B.IMPORTE_COMISION <> 0
+    					AND NOT EXISTS (
+    					    SELECT 1 
+    					    FROM EXT.FINAL_REPEXT_FILE_TEST X 
+    					    WHERE X.POS_PRIN       = P.POS_PRIN
+    					      AND X.PERIODSEQ      = P.PERIODSEQ
+    					      AND X.EARNINGCODEID  = P.EARNINGCODEID
+    					      AND X.EARNINGGROUPID = P.EARNINGGROUPID
+    					      AND X.TIPO_DOCUMENTO = P.TIPO_DOCUMENTO
+    					      AND X.ORDERID        = B.ORDERID
+    					      AND X.LINENUMBER     = B.LINENUMBER
+    					      AND X.SUBLINENUMBER  = B.SUBLINENUMBER
+    					      AND X.EVENTTYPEID    = B.EVENTTYPEID
+    					);
+    					
+    	CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_FINAL_PAGOS_BASES_124_125_03_RT: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+    	
+    	--LIQUIDACIÓN COMPLEMENTARIA
+		IF v_num_post > 1 AND i_tipo_reparto = 'CIERRE' THEN
+		
+			TEMP_PAGOS_DIRECTOS_124_125_03_RT_LC = SELECT SUM(IMPORTE) SUMA_PAGOS,PERIODSEQ,POS_PRIN,EARNINGGROUPID,EARNINGCODEID,DEPOSITO 
+				FROM :TEMP_FINAL_PAGOS_BASES_124_125_03_RT
+				WHERE TIPO_LIQ IN ('CIERRE','LIQ')
+				GROUP BY PERIODSEQ,POS_PRIN,EARNINGGROUPID,EARNINGCODEID,DEPOSITO;
+		
+			INSERT INTO EXT.FINAL_REPEXT_FILE_TEST("TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+		        ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+		        ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+		        ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ")
+		    SELECT "TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+		        ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE"*(-1),"TIPO_AGENTE","TIPO_DOCUMENTO",TF."EARNINGGROUPID"
+		        ,TF."EARNINGCODEID",TF.SUMA_IMPORTE,"DEPOSITSEQ",TF."DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+		        ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF",TF."POS_PRIN","POSITIONNAME","PERIODO",TF."PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ"
+		    FROM :TEMP_FINAL_PAGOS_BASES_124_125_03_RT TF 
+		    	INNER JOIN :TEMP_PAGOS_DIRECTOS_124_125_03_RT_LC TLC ON TF.PERIODSEQ = TLC.PERIODSEQ AND TF.POS_PRIN = TLC.POS_PRIN 
+		    	AND TF.EARNINGGROUPID = TLC.EARNINGGROUPID AND TF.EARNINGCODEID = TLC. EARNINGCODEID AND TF.DEPOSITO = TLC.DEPOSITO
+		    	AND 1 = (CASE WHEN SUMA_PAGOS <> SUMA_IMPORTE THEN 1 END); 
+		 END IF;
+    	-- FIN LIQUIDACIÓN COMPLEMENTARIA
+    	
+    	UPDATE F
+    	SET ESTADO_REPARTO = CASE 
+    		WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 2
+			WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 3
+			ELSE 4 
+		END
+		FROM EXT.FINAL_REPEXT_PAGOS_FILE_TEST F
+		INNER JOIN :TEMP_FINAL_PAGOS_BASES_124_125_03_RT T ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+		AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID;
+		
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_PAGOS_FILE_TEST ESTADOS ACTUALIZADOS: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+		
+		UPDATE F
+            SET ESTADO_REPARTO = CASE 
+    				WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 2
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 3
+					ELSE 4 
+				END --REPARTO CORRECTO
+			FROM :TEMP_REPEXT_PAGOS_REPARTO_FILE F
+			INNER JOIN :TEMP_FINAL_PAGOS_BASES_124_125_03_RT T ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+			AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+	--		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID
+			WHERE 1 = (CASE 
+    				WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 1
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+					ELSE 0 
+				END)
+			;
+        CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_REPEXT_PAGOS_REPARTO_FILE ESTADOS ACTUALIZADOS: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');   
+		
+		INSERT INTO EXT.FINAL_REPEXT_FILE_TEST("TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+            ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+            ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+            ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ")
+        SELECT "TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+            ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+            ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+            ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ"
+        FROM :TEMP_FINAL_PAGOS_BASES_124_125_03_RT
+        WHERE 1 = (
+        	CASE 
+        		WHEN (IMPORTE_PAGO - IFNULL(SUMA_IMPORTE,0)) = 0 THEN 1
+    			WHEN (IMPORTE_PAGO - IFNULL(SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+    		ELSE 0 
+    		END);
+		
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_FILE_TEST INSERTADOS: ' ||::ROWCOUNT, v_log_count, v_idproceso, 'info');	
+		---------------------------------------------------------------------------------------------------
+
+		TEMP_FINAL_PAGOS_BASES_124_125_03_RT_DIF =
+			SELECT T.PERIODSEQ,T.POS_PRIN,T.TIPO_DOCUMENTO,T.DEPOSITSEQ,T.EARNINGCODEID,T.EARNINGGROUPID,T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0) AS DIF,
+				T.ORDERID,T.LINENUMBER,T.SUBLINENUMBER,T.EVENTTYPEID, T.COMPENSATIONDATE,
+				ROW_NUMBER() OVER(
+                      		PARTITION BY T.PERIODSEQ,T.POS_PRIN,T.TIPO_DOCUMENTO,T.DEPOSITSEQ,T.EARNINGCODEID,T.EARNINGGROUPID
+                      		--ORDER BY T.ORDERID
+                      ) AS RN_TRX
+			FROM :TEMP_FINAL_PAGOS_BASES_124_125_03_RT T
+			WHERE 1 = (CASE 
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 0
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+					ELSE 0 
+				END)
+		;
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_FINAL_PAGOS_BASES_124_125_03_RT_DIF: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+		UPDATE F
+    	SET F.IMPORTE = F.IMPORTE + T.DIF
+    	FROM EXT.FINAL_REPEXT_FILE_TEST F
+    	INNER JOIN :TEMP_FINAL_PAGOS_BASES_124_125_03_RT_DIF T  ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+		AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID
+		AND F.ORDERID = T.ORDERID AND F.LINENUMBER = T.LINENUMBER AND F.SUBLINENUMBER = T.SUBLINENUMBER AND F.EVENTTYPEID = T.EVENTTYPEID AND F.COMPENSATIONDATE = T.COMPENSATIONDATE
+		AND T.RN_TRX = 1
+		;
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_FILE_TEST IMPORTE_DIF: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+
+		
+		
+		---------------------------------------------------------------------------------------------------
+		-- 124_125-03_RG	
+		---------------------------------------------------------------------------------------------------
+		--PAGOS
+		TEMP_PAGOS_DIRECTOS_124_125_03_RG = SELECT *
+    		FROM :TEMP_PAGOS_DIRECTOS
+    		WHERE SUBSTRING(EARNINGGROUPID,7,5) = '03-RG'
+    		AND (EARNINGCODEID LIKE  '124%' OR EARNINGCODEID LIKE  '125%');
+    		
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_PAGOS_DIRECTOS_124_125_03_RG ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+		--BASES
+		IF i_tipo_reparto = 'CIERRE' THEN
+			TEMP_BASES_124_125_03_RG = SELECT * 
+	    		FROM EXT.FINAL_BASES_REPARTO_POLIZA_FILE B
+	    		WHERE PERIODSEQ = i_periodSeq
+	    		-- EARNINGGROUPID = '03-RG'
+	    		-- AND PRODUCTID LIKE '03%' AND PRODUCTID NOT LIKE '032%'
+	    		-- EARNINGCODEID = '124_125'
+	    		AND EVENTTYPEID = '11';
+	    		
+	    	CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_BASES_124_125_03_RG: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+	    ELSE
+	    	TEMP_BASES_124_125_03_RG = SELECT * 
+    		FROM EXT.FINAL_BASES_REPARTO_POLIZA_FILE_NUEVA_BASE_REPARTO B
+    		WHERE PERIODSEQ = v_periodSeqAnterior
+    		-- EARNINGGROUPID = '03-RG'
+    		-- AND PRODUCTID LIKE '03%' AND PRODUCTID NOT LIKE '032%'
+    		-- EARNINGCODEID = '124_125'
+    		AND EVENTTYPEID = '11';
+    		
+    	CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_BASES_124_125_03_RG (BALANCE): ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+    	END IF;
+    	
+   -- 	--BASES_TOTAL_IMPORTE
+   -- 	BASES_TOTAL_IMPORTE_124_125_03_RG = 
+			-- SELECT POSITIONSEQ, SUM(IMPORTE_COMISION) AS SUMA_IMPORTE
+			-- FROM :TEMP_BASES_124_125_03_RG
+			-- WHERE IMPORTE_COMISION <> 0
+			-- GROUP BY POSITIONSEQ;
+			
+			
+    	--FINAL
+    	TEMP_FINAL_PAGOS_BASES_124_125_03_RG = SELECT P.PARTICIPANTSEQ,
+                                P.POSITIONSEQ,
+                                P.PERIODSEQ,
+                                :v_periodName AS PERIODO,
+                                P.POS_CALLIDUS POSITIONNAME,
+                                P.POS_PRIN,
+                                P.NIF,
+                                P.MANAGER_POS_PRIN,
+                                ORDERID,
+                                LINENUMBER,
+                                SUBLINENUMBER,
+                                EVENTTYPEID,
+                                PRODUCTID,
+                                CODIGO_POLIZA,
+                                COMPENSATIONDATE,
+                                ESTADO,
+                                P.PROGRAMA,
+                                P.TIPO_PAGO,
+                                P.DEPOSITO,
+                                P.DEPOSITSEQ,
+                                P.IMPORTE IMPORTE_PAGO,
+                                P.EARNINGCODEID,
+                                P.EARNINGGROUPID,
+                                P.TIPO_DOCUMENTO,
+                                P.TIPO_AGENTE,
+                                B.IMPORTE_COMISION AS IMPORTE,
+                                (SELECT SUM(IMPORTE_COMISION)
+                                	FROM :TEMP_BASES_124_125_03_RG S
+                                	WHERE S.POSITIONSEQ = B.POSITIONSEQ
+                                	AND S.PRODUCTID LIKE '%'||RIGHT(P.EARNINGCODEID,5)
+                                ) AS SUMA_IMPORTE,
+                                NULL AS TIPO_REPARTO,
+                                0 AS NUM_TRAMO,
+                                NULL AS REPARTO_TIPO_BASE,
+                                NULL AS REPARTO_PORCENTAJE,
+                                POLIZA_FISICA,
+                                POLIZA_CORREGIDA,
+                                PRIMA_CORREGIDA,
+                                PRIMA_NETA,
+                                PRIMA_NETA_ANUAL,
+                                PRIMA_COMIS_S4 PRIMA_COMIS,
+                                NULL AS COEF_TIPO_BASE,
+                                NULL AS COEF_CORRECTOR,
+                                COD_AGENTE,
+                                P.TIPO_LIQ
+    					FROM :TEMP_PAGOS_DIRECTOS_124_125_03_RG P
+    					INNER JOIN :TEMP_BASES_124_125_03_RG B ON P.POSITIONSEQ = B.POSITIONSEQ
+    					--INNER JOIN :BASES_TOTAL_IMPORTE_124_125_03_RG BT ON BT.POSITIONSEQ = B.POSITIONSEQ
+    					WHERE 
+    					PRODUCTID LIKE '%'||RIGHT(P.EARNINGCODEID,5)
+    					-- TIPO CONCEPTO: IMPORTE_COMISION
+    					AND B.IMPORTE_COMISION <> 0
+    					AND NOT EXISTS (
+    					    SELECT 1 
+    					    FROM EXT.FINAL_REPEXT_FILE_TEST X 
+    					    WHERE X.POS_PRIN       = P.POS_PRIN
+    					      AND X.PERIODSEQ      = P.PERIODSEQ
+    					      AND X.EARNINGCODEID  = P.EARNINGCODEID
+    					      AND X.EARNINGGROUPID = P.EARNINGGROUPID
+    					      AND X.TIPO_DOCUMENTO = P.TIPO_DOCUMENTO
+    					      AND X.ORDERID        = B.ORDERID
+    					      AND X.LINENUMBER     = B.LINENUMBER
+    					      AND X.SUBLINENUMBER  = B.SUBLINENUMBER
+    					      AND X.EVENTTYPEID    = B.EVENTTYPEID
+    					);
+    	CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_FINAL_PAGOS_BASES_124_125_03_RG: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+    	
+    	--LIQUIDACIÓN COMPLEMENTARIA
+		IF v_num_post > 1 AND i_tipo_reparto = 'CIERRE' THEN
+		
+			TEMP_PAGOS_DIRECTOS_124_125_03_RG_LC = SELECT SUM(IMPORTE) SUMA_PAGOS,PERIODSEQ,POS_PRIN,EARNINGGROUPID,EARNINGCODEID,DEPOSITO 
+				FROM :TEMP_FINAL_PAGOS_BASES_124_125_03_RG
+				WHERE TIPO_LIQ IN ('CIERRE','LIQ')
+				GROUP BY PERIODSEQ,POS_PRIN,EARNINGGROUPID,EARNINGCODEID,DEPOSITO;
+		
+			INSERT INTO EXT.FINAL_REPEXT_FILE_TEST("TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+		        ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+		        ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+		        ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ")
+		    SELECT "TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+		        ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE"*(-1),"TIPO_AGENTE","TIPO_DOCUMENTO",TF."EARNINGGROUPID"
+		        ,TF."EARNINGCODEID",TF.SUMA_IMPORTE,"DEPOSITSEQ",TF."DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+		        ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF",TF."POS_PRIN","POSITIONNAME","PERIODO",TF."PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ"
+		    FROM :TEMP_FINAL_PAGOS_BASES_124_125_03_RG TF 
+		    	INNER JOIN :TEMP_PAGOS_DIRECTOS_124_125_03_RG_LC TLC ON TF.PERIODSEQ = TLC.PERIODSEQ AND TF.POS_PRIN = TLC.POS_PRIN 
+		    	AND TF.EARNINGGROUPID = TLC.EARNINGGROUPID AND TF.EARNINGCODEID = TLC. EARNINGCODEID AND TF.DEPOSITO = TLC.DEPOSITO
+		    	AND 1 = (CASE WHEN SUMA_PAGOS <> SUMA_IMPORTE THEN 1 END); 
+		 END IF;
+    	-- FIN LIQUIDACIÓN COMPLEMENTARIA
+    	
+    	UPDATE F
+    	SET ESTADO_REPARTO = CASE 
+    		WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 2
+			WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 3
+			ELSE 4 
+		END
+		FROM EXT.FINAL_REPEXT_PAGOS_FILE_TEST F
+		INNER JOIN :TEMP_FINAL_PAGOS_BASES_124_125_03_RG T ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+		AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID;
+		
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_PAGOS_FILE_TEST ESTADOS ACTUALIZADOS: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+		
+		UPDATE F
+            SET ESTADO_REPARTO = CASE 
+    				WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 2
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 3
+					ELSE 4 
+				END --REPARTO CORRECTO
+			FROM :TEMP_REPEXT_PAGOS_REPARTO_FILE F
+			INNER JOIN :TEMP_FINAL_PAGOS_BASES_124_125_03_RG T ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+			AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+	--		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID
+			WHERE 1 = (CASE 
+    				WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 1
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+					ELSE 0 
+				END)
+			;
+        CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_REPEXT_PAGOS_REPARTO_FILE ESTADOS ACTUALIZADOS: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');   
+	
+		INSERT INTO EXT.FINAL_REPEXT_FILE_TEST("TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+            ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+            ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+            ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ")
+        SELECT "TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+            ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+            ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+            ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ"
+        FROM :TEMP_FINAL_PAGOS_BASES_124_125_03_RG
+        WHERE 1 = (
+        	CASE 
+        		WHEN (IMPORTE_PAGO - IFNULL(SUMA_IMPORTE,0)) = 0 THEN 1
+    			WHEN (IMPORTE_PAGO - IFNULL(SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+    		ELSE 0 
+    		END);
+        
+ 
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_FILE_TEST INSERTADOS: ' ||::ROWCOUNT, v_log_count, v_idproceso, 'info');	
+ ---------------------------------------------------------------------------------------------------
+
+		TEMP_FINAL_PAGOS_BASES_124_125_03_RG_DIF =
+			SELECT T.PERIODSEQ,T.POS_PRIN,T.TIPO_DOCUMENTO,T.DEPOSITSEQ,T.EARNINGCODEID,T.EARNINGGROUPID,T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0) AS DIF,
+				T.ORDERID,T.LINENUMBER,T.SUBLINENUMBER,T.EVENTTYPEID, T.COMPENSATIONDATE,
+				ROW_NUMBER() OVER(
+                      		PARTITION BY T.PERIODSEQ,T.POS_PRIN,T.TIPO_DOCUMENTO,T.DEPOSITSEQ,T.EARNINGCODEID,T.EARNINGGROUPID
+                      		--ORDER BY T.ORDERID
+                      ) AS RN_TRX
+			FROM :TEMP_FINAL_PAGOS_BASES_124_125_03_RG T
+			WHERE 1 = (CASE 
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 0
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+					ELSE 0 
+				END)
+		;
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_FINAL_PAGOS_BASES_124_125_03_RG_DIF: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+		UPDATE F
+    	SET F.IMPORTE = F.IMPORTE + T.DIF
+    	FROM EXT.FINAL_REPEXT_FILE_TEST F
+    	INNER JOIN :TEMP_FINAL_PAGOS_BASES_124_125_03_RG_DIF T  ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+		AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID
+		AND F.ORDERID = T.ORDERID AND F.LINENUMBER = T.LINENUMBER AND F.SUBLINENUMBER = T.SUBLINENUMBER AND F.EVENTTYPEID = T.EVENTTYPEID AND F.COMPENSATIONDATE = T.COMPENSATIONDATE
+		AND T.RN_TRX = 1
+		;
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_FILE_TEST IMPORTE_DIF: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+
+
+		--------------------------------------------------------------------------------------------------
+		-- 15-01_RT	
+		---------------------------------------------------------------------------------------------------
+		--PAGOS
+		TEMP_PAGOS_DIRECTOS_15_01_RT = SELECT *
+    		FROM :TEMP_PAGOS_DIRECTOS
+    		WHERE SUBSTRING(EARNINGGROUPID,7,5) = '01-RT'
+    		AND EARNINGCODEID LIKE '15%';
+    		
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_PAGOS_DIRECTOS_15_01_RT: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+		--BASES
+		IF i_tipo_reparto = 'CIERRE' THEN
+			TEMP_BASES_15_01_RT = SELECT * 
+	    		FROM EXT.FINAL_BASES_REPARTO_POLIZA_FILE B
+	    		WHERE PERIODSEQ = i_periodSeq
+	            AND PRODUCTID LIKE '012%'
+	    		AND EVENTTYPEID LIKE 'AS%';
+	    		
+	    	CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_BASES_15_01_RT: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+	    ELSE
+	    	TEMP_BASES_15_01_RT = SELECT * 
+    		FROM EXT.FINAL_BASES_REPARTO_POLIZA_FILE_NUEVA_BASE_REPARTO B
+    		WHERE PERIODSEQ = v_periodSeqAnterior
+            AND PRODUCTID LIKE '012%'
+    		AND EVENTTYPEID LIKE 'AS%';
+    		
+    		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_BASES_15_01_RT (BALANCE): ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+    	END IF;
+    	
+    	
+    	--BASES_TOTAL_IMPORTE
+    	BASES_TOTAL_IMPORTE_15_01_RT = 
+			SELECT POSITIONSEQ, SUM(IMP_SERV_ASISTENCIAS) AS SUMA_IMPORTE
+			FROM :TEMP_BASES_15_01_RT
+			WHERE IMP_SERV_ASISTENCIAS <> 0
+			GROUP BY POSITIONSEQ;
+			
+    	--FINAL
+    	TEMP_FINAL_PAGOS_BASES_15_01_RT = SELECT P.PARTICIPANTSEQ,
+                                P.POSITIONSEQ,
+                                P.PERIODSEQ,
+                                :v_periodName AS PERIODO,
+                                P.POS_CALLIDUS POSITIONNAME,
+                                P.POS_PRIN,
+                                P.NIF,
+                                P.MANAGER_POS_PRIN,
+                                ORDERID,
+                                LINENUMBER,
+                                SUBLINENUMBER,
+                                EVENTTYPEID,
+                                PRODUCTID,
+                                CODIGO_POLIZA,
+                                COMPENSATIONDATE,
+                                ESTADO,
+                                P.PROGRAMA,
+                                P.TIPO_PAGO,
+                                P.DEPOSITO,
+                                P.DEPOSITSEQ,
+                                P.IMPORTE IMPORTE_PAGO,
+                                P.EARNINGCODEID,
+                                P.EARNINGGROUPID,
+                                P.TIPO_DOCUMENTO,
+                                P.TIPO_AGENTE,
+                                B.IMP_SERV_ASISTENCIAS AS IMPORTE,
+                                BT.SUMA_IMPORTE AS SUMA_IMPORTE,
+                                NULL AS TIPO_REPARTO,
+                                0 AS NUM_TRAMO,
+                                NULL AS REPARTO_TIPO_BASE,
+                                NULL AS REPARTO_PORCENTAJE,
+                                POLIZA_FISICA,
+                                POLIZA_CORREGIDA,
+                                PRIMA_CORREGIDA,
+                                PRIMA_NETA,
+                                PRIMA_NETA_ANUAL,
+                                PRIMA_COMIS_S4 PRIMA_COMIS,
+                                NULL AS COEF_TIPO_BASE,
+                                NULL AS COEF_CORRECTOR,
+                                COD_AGENTE,
+                                P.TIPO_LIQ
+    					FROM :TEMP_PAGOS_DIRECTOS_15_01_RT P
+    					INNER JOIN :TEMP_BASES_15_01_RT B ON P.POSITIONSEQ = B.POSITIONSEQ
+    					INNER JOIN :BASES_TOTAL_IMPORTE_15_01_RT BT ON BT.POSITIONSEQ = B.POSITIONSEQ
+    					WHERE 
+    					-- TIPO CONCEPTO: IMPORTE_COMISION
+    					B.IMP_SERV_ASISTENCIAS <> 0
+    					AND (
+    						(P.DEPOSITO = 'D-O-COM-ServiciosAsistencia-Pago10'  AND B.EVENTTYPEID = 'AS10')
+							OR (P.DEPOSITO = 'D-O-COM-ServiciosAsistencia-Pago50'  AND B.EVENTTYPEID = 'AS50')
+							OR (P.DEPOSITO = 'D-O-COM-ServiciosAsistencia-Pago90'  AND B.EVENTTYPEID = 'AS90')
+							OR (P.DEPOSITO = 'D-O-COM-ServiciosAsistencia-Pago91'  AND B.EVENTTYPEID = 'AS91')
+							OR (P.DEPOSITO = 'D-O-COM-ServiciosAsistencia-Pago110' AND B.EVENTTYPEID = 'AS110')
+							OR (P.DEPOSITO NOT LIKE 'D-O-COM-ServiciosAsistencia-Pago%' AND B.EVENTTYPEID LIKE 'AS%')
+    					)
+    					AND NOT EXISTS (
+    					    SELECT 1 
+    					    FROM EXT.FINAL_REPEXT_FILE_TEST X 
+    					    WHERE X.POS_PRIN       = P.POS_PRIN
+    					      AND X.PERIODSEQ      = P.PERIODSEQ
+    					      AND X.EARNINGCODEID  = P.EARNINGCODEID
+    					      AND X.EARNINGGROUPID = P.EARNINGGROUPID
+    					      AND X.TIPO_DOCUMENTO = P.TIPO_DOCUMENTO
+    					      AND X.ORDERID        = B.ORDERID
+    					      AND X.LINENUMBER     = B.LINENUMBER
+    					      AND X.SUBLINENUMBER  = B.SUBLINENUMBER
+    					      AND X.EVENTTYPEID    = B.EVENTTYPEID
+    					);
+    					
+    	CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_FINAL_PAGOS_BASES_15_01_RT: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+    	
+    	--LIQUIDACIÓN COMPLEMENTARIA
+		IF v_num_post > 1 AND i_tipo_reparto = 'CIERRE' THEN
+		
+			TEMP_PAGOS_DIRECTOS_15_01_RT_LC = SELECT SUM(IMPORTE) SUMA_PAGOS,PERIODSEQ,POS_PRIN,EARNINGGROUPID,EARNINGCODEID,DEPOSITO 
+				FROM :TEMP_FINAL_PAGOS_BASES_15_01_RT
+				WHERE TIPO_LIQ IN ('CIERRE','LIQ')
+				GROUP BY PERIODSEQ,POS_PRIN,EARNINGGROUPID,EARNINGCODEID,DEPOSITO;
+		
+			INSERT INTO EXT.FINAL_REPEXT_FILE_TEST("TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+		        ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+		        ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+		        ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ")
+		    SELECT "TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+		        ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE"*(-1),"TIPO_AGENTE","TIPO_DOCUMENTO",TF."EARNINGGROUPID"
+		        ,TF."EARNINGCODEID",TF.SUMA_IMPORTE,"DEPOSITSEQ",TF."DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+		        ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF",TF."POS_PRIN","POSITIONNAME","PERIODO",TF."PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ"
+		    FROM :TEMP_FINAL_PAGOS_BASES_15_01_RT TF 
+		    	INNER JOIN :TEMP_PAGOS_DIRECTOS_15_01_RT_LC TLC ON TF.PERIODSEQ = TLC.PERIODSEQ AND TF.POS_PRIN = TLC.POS_PRIN 
+		    	AND TF.EARNINGGROUPID = TLC.EARNINGGROUPID AND TF.EARNINGCODEID = TLC. EARNINGCODEID AND TF.DEPOSITO = TLC.DEPOSITO
+		    	AND 1 = (CASE WHEN SUMA_PAGOS <> SUMA_IMPORTE THEN 1 END); 
+		 END IF;
+    	-- FIN LIQUIDACIÓN COMPLEMENTARIA
+    	
+    	UPDATE F
+    	SET ESTADO_REPARTO = CASE 
+    		WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 2
+			WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 3
+			ELSE 4 
+		END
+		FROM EXT.FINAL_REPEXT_PAGOS_FILE_TEST F
+		INNER JOIN :TEMP_FINAL_PAGOS_BASES_15_01_RT T ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+		AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID;
+		
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_PAGOS_FILE_TEST ESTADOS ACTUALIZADOS: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+		
+		UPDATE F
+            SET ESTADO_REPARTO = CASE 
+    				WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 2
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 3
+					ELSE 4 
+				END --REPARTO CORRECTO
+			FROM :TEMP_REPEXT_PAGOS_REPARTO_FILE F
+			INNER JOIN :TEMP_FINAL_PAGOS_BASES_15_01_RT T ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+			AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+			WHERE 1 = (CASE 
+    				WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 1
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+					ELSE 0 
+				END)
+	--		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID
+			;
+        CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_REPEXT_PAGOS_REPARTO_FILE ESTADOS ACTUALIZADOS: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');   
+                                   
+		
+		INSERT INTO EXT.FINAL_REPEXT_FILE_TEST("TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+            ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+            ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+            ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ")
+        SELECT "TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+            ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+            ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+            ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ"
+        FROM :TEMP_FINAL_PAGOS_BASES_15_01_RT
+        WHERE 1 = (
+        	CASE 
+        		WHEN (IMPORTE_PAGO - IFNULL(SUMA_IMPORTE,0)) = 0 THEN 1
+    			WHEN (IMPORTE_PAGO - IFNULL(SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+    		ELSE 0 
+    		END);
+
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_FILE_TEST INSERTADOS: ' ||::ROWCOUNT, v_log_count, v_idproceso, 'info');	
+		---------------------------------------------------------------------------------------------------
+		
+		TEMP_FINAL_PAGOS_BASES_15_01_RT_DIF =
+			SELECT T.PERIODSEQ,T.POS_PRIN,T.TIPO_DOCUMENTO,T.DEPOSITSEQ,T.EARNINGCODEID,T.EARNINGGROUPID,T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0) AS DIF,
+					T.ORDERID,T.LINENUMBER,T.SUBLINENUMBER,T.EVENTTYPEID, T.COMPENSATIONDATE,
+				ROW_NUMBER() OVER(
+                      		PARTITION BY T.PERIODSEQ,T.POS_PRIN,T.TIPO_DOCUMENTO,T.DEPOSITSEQ,T.EARNINGCODEID,T.EARNINGGROUPID
+                      		--ORDER BY T.ORDERID
+                      ) AS RN_TRX
+			FROM :TEMP_FINAL_PAGOS_BASES_15_01_RT T
+			WHERE 1 = (CASE 
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 0
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+					ELSE 0 
+				END)
+		;
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_FINAL_PAGOS_BASES_15_01_RT_DIF: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+		UPDATE F
+    	SET F.IMPORTE = F.IMPORTE + T.DIF
+    	FROM EXT.FINAL_REPEXT_FILE_TEST F
+    	INNER JOIN :TEMP_FINAL_PAGOS_BASES_15_01_RT_DIF T  ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+		AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID
+		AND F.ORDERID = T.ORDERID AND F.LINENUMBER = T.LINENUMBER AND F.SUBLINENUMBER = T.SUBLINENUMBER AND F.EVENTTYPEID = T.EVENTTYPEID AND F.COMPENSATIONDATE = T.COMPENSATIONDATE
+		AND T.RN_TRX = 1
+		;
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_FILE_TEST IMPORTE_DIF: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+
+		
+		
+		
+		---------------------------------------------------------------------------------------------------
+		-- 15-01_RG	
+		---------------------------------------------------------------------------------------------------
+		--PAGOS
+		TEMP_PAGOS_DIRECTOS_15_01_RG = SELECT *
+    		FROM :TEMP_PAGOS_DIRECTOS
+    		WHERE SUBSTRING(EARNINGGROUPID,7,5) = '01-RG'
+    		AND EARNINGCODEID LIKE  '15%';
+    		
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_PAGOS_DIRECTOS_15_01_RG: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+		--BASES
+		IF i_tipo_reparto = 'CIERRE' THEN
+			TEMP_BASES_15_01_RG = SELECT * 
+	    		FROM EXT.FINAL_BASES_REPARTO_POLIZA_FILE B
+	    		WHERE PERIODSEQ = i_periodSeq
+	            AND PRODUCTID LIKE '01%' AND PRODUCTID NOT LIKE '012%'
+	    		AND EVENTTYPEID LIKE 'AS%';
+	    	CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_BASES_15_01_RG: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+	    ELSE
+		    TEMP_BASES_15_01_RG = SELECT * 
+	    		FROM EXT.FINAL_BASES_REPARTO_POLIZA_FILE_NUEVA_BASE_REPARTO B
+	    		WHERE PERIODSEQ = v_periodSeqAnterior
+	            AND PRODUCTID LIKE '01%' AND PRODUCTID NOT LIKE '012%'
+	    		AND EVENTTYPEID LIKE 'AS%';
+	    	CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_BASES_15_01_RG (BALANCE): ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+    	END IF;
+    	
+    	
+    	--BASES_TOTAL_IMPORTE
+    	BASES_TOTAL_IMPORTE_15_01_RG = 
+			SELECT POSITIONSEQ, SUM(IMP_SERV_ASISTENCIAS) AS SUMA_IMPORTE
+			FROM :TEMP_BASES_15_01_RG
+			WHERE IMP_SERV_ASISTENCIAS <> 0
+			GROUP BY POSITIONSEQ;
+			
+    	--FINAL
+    	TEMP_FINAL_PAGOS_BASES_15_01_RG = SELECT P.PARTICIPANTSEQ,
+                                P.POSITIONSEQ,
+                                P.PERIODSEQ,
+                                :v_periodName AS PERIODO,
+                                P.POS_CALLIDUS POSITIONNAME,
+                                P.POS_PRIN,
+                                P.NIF,
+                                P.MANAGER_POS_PRIN,
+                                ORDERID,
+                                LINENUMBER,
+                                SUBLINENUMBER,
+                                EVENTTYPEID,
+                                PRODUCTID,
+                                CODIGO_POLIZA,
+                                COMPENSATIONDATE,
+                                ESTADO,
+                                P.PROGRAMA,
+                                P.TIPO_PAGO,
+                                P.DEPOSITO,
+                                P.DEPOSITSEQ,
+                                P.IMPORTE IMPORTE_PAGO,
+                                P.EARNINGCODEID,
+                                P.EARNINGGROUPID,
+                                P.TIPO_DOCUMENTO,
+                                P.TIPO_AGENTE,
+                                B.IMP_SERV_ASISTENCIAS AS IMPORTE,
+                                BT.SUMA_IMPORTE AS SUMA_IMPORTE,
+                                NULL AS TIPO_REPARTO,
+                                0 AS NUM_TRAMO,
+                                NULL AS REPARTO_TIPO_BASE,
+                                NULL AS REPARTO_PORCENTAJE,
+                                POLIZA_FISICA,
+                                POLIZA_CORREGIDA,
+                                PRIMA_CORREGIDA,
+                                PRIMA_NETA,
+                                PRIMA_NETA_ANUAL,
+                                PRIMA_COMIS_S4 PRIMA_COMIS,
+                                NULL AS COEF_TIPO_BASE,
+                                NULL AS COEF_CORRECTOR,
+                                COD_AGENTE,
+                                P.TIPO_LIQ
+    					FROM :TEMP_PAGOS_DIRECTOS_15_01_RG P
+    					INNER JOIN :TEMP_BASES_15_01_RG B ON P.POSITIONSEQ = B.POSITIONSEQ
+    					INNER JOIN :BASES_TOTAL_IMPORTE_15_01_RG BT ON BT.POSITIONSEQ = B.POSITIONSEQ
+    					WHERE 
+    					-- TIPO CONCEPTO: IMPORTE_COMISION
+    					B.IMP_SERV_ASISTENCIAS <> 0
+    					AND (
+    						(P.DEPOSITO = 'D-O-COM-ServiciosAsistencia-Pago10'  AND B.EVENTTYPEID = 'AS10')
+							OR (P.DEPOSITO = 'D-O-COM-ServiciosAsistencia-Pago50'  AND B.EVENTTYPEID = 'AS50')
+							OR (P.DEPOSITO = 'D-O-COM-ServiciosAsistencia-Pago90'  AND B.EVENTTYPEID = 'AS90')
+							OR (P.DEPOSITO = 'D-O-COM-ServiciosAsistencia-Pago91'  AND B.EVENTTYPEID = 'AS91')
+							OR (P.DEPOSITO = 'D-O-COM-ServiciosAsistencia-Pago110' AND B.EVENTTYPEID = 'AS110')
+							OR (P.DEPOSITO NOT LIKE 'D-O-COM-ServiciosAsistencia-Pago%' AND B.EVENTTYPEID LIKE 'AS%')
+    					)
+    					AND NOT EXISTS (
+    					    SELECT 1 
+    					    FROM EXT.FINAL_REPEXT_FILE_TEST X 
+    					    WHERE X.POS_PRIN       = P.POS_PRIN
+    					      AND X.PERIODSEQ      = P.PERIODSEQ
+    					      AND X.EARNINGCODEID  = P.EARNINGCODEID
+    					      AND X.EARNINGGROUPID = P.EARNINGGROUPID
+    					      AND X.TIPO_DOCUMENTO = P.TIPO_DOCUMENTO
+    					      AND X.ORDERID        = B.ORDERID
+    					      AND X.LINENUMBER     = B.LINENUMBER
+    					      AND X.SUBLINENUMBER  = B.SUBLINENUMBER
+    					      AND X.EVENTTYPEID    = B.EVENTTYPEID
+    					);
+    	CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_FINAL_PAGOS_BASES_15_01_RG: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+    	
+    	--LIQUIDACIÓN COMPLEMENTARIA
+		IF v_num_post > 1 AND i_tipo_reparto = 'CIERRE' THEN
+		
+			TEMP_PAGOS_DIRECTOS_15_01_RG_LC = SELECT SUM(IMPORTE) SUMA_PAGOS,PERIODSEQ,POS_PRIN,EARNINGGROUPID,EARNINGCODEID,DEPOSITO 
+				FROM :TEMP_FINAL_PAGOS_BASES_15_01_RG
+				WHERE TIPO_LIQ IN ('CIERRE','LIQ')
+				GROUP BY PERIODSEQ,POS_PRIN,EARNINGGROUPID,EARNINGCODEID,DEPOSITO;
+		
+			INSERT INTO EXT.FINAL_REPEXT_FILE_TEST("TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+		        ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+		        ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+		        ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ")
+		    SELECT "TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+		        ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE"*(-1),"TIPO_AGENTE","TIPO_DOCUMENTO",TF."EARNINGGROUPID"
+		        ,TF."EARNINGCODEID",TF.SUMA_IMPORTE,"DEPOSITSEQ",TF."DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+		        ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF",TF."POS_PRIN","POSITIONNAME","PERIODO",TF."PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ"
+		    FROM :TEMP_FINAL_PAGOS_BASES_15_01_RG TF 
+		    	INNER JOIN :TEMP_PAGOS_DIRECTOS_15_01_RG_LC TLC ON TF.PERIODSEQ = TLC.PERIODSEQ AND TF.POS_PRIN = TLC.POS_PRIN 
+		    	AND TF.EARNINGGROUPID = TLC.EARNINGGROUPID AND TF.EARNINGCODEID = TLC. EARNINGCODEID AND TF.DEPOSITO = TLC.DEPOSITO
+		    	AND 1 = (CASE WHEN SUMA_PAGOS <> SUMA_IMPORTE THEN 1 END); 
+		 END IF;
+    	-- FIN LIQUIDACIÓN COMPLEMENTARIA
+    	
+    	UPDATE F
+    	SET ESTADO_REPARTO = CASE 
+    		WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 2
+			WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 3
+			ELSE 4 
+		END
+		FROM EXT.FINAL_REPEXT_PAGOS_FILE_TEST F
+		INNER JOIN :TEMP_FINAL_PAGOS_BASES_15_01_RG T ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+		AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID;
+		
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_PAGOS_FILE_TEST ESTADOS ACTUALIZADOS: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+		
+		UPDATE F
+            SET ESTADO_REPARTO = CASE 
+    				WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 2
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 3
+					ELSE 4 
+				END --REPARTO CORRECTO
+			FROM :TEMP_REPEXT_PAGOS_REPARTO_FILE F
+			INNER JOIN :TEMP_FINAL_PAGOS_BASES_15_01_RG T ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+			AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+	--		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID
+			WHERE 1 = (CASE 
+    				WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 1
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+					ELSE 0 
+				END)
+			;
+        CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_REPEXT_PAGOS_REPARTO_FILE ESTADOS ACTUALIZADOS: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');   
+		
+		INSERT INTO EXT.FINAL_REPEXT_FILE_TEST("TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+            ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+            ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+            ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ")
+        SELECT "TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+            ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+            ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+            ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ"
+        FROM :TEMP_FINAL_PAGOS_BASES_15_01_RG
+        WHERE 1 = (
+        	CASE 
+        		WHEN (IMPORTE_PAGO - IFNULL(SUMA_IMPORTE,0)) = 0 THEN 1
+    			WHEN (IMPORTE_PAGO - IFNULL(SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+    		ELSE 0 
+    		END);
+		
+
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_FILE_TEST INSERTADOS: ' ||::ROWCOUNT, v_log_count, v_idproceso, 'info');	
+		---------------------------------------------------------------------------------------------------
+		
+		TEMP_FINAL_PAGOS_BASES_15_01_RG_DIF =
+			SELECT T.PERIODSEQ,T.POS_PRIN,T.TIPO_DOCUMENTO,T.DEPOSITSEQ,T.EARNINGCODEID,T.EARNINGGROUPID,T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0) AS DIF,
+				T.ORDERID,T.LINENUMBER,T.SUBLINENUMBER,T.EVENTTYPEID, T.COMPENSATIONDATE,
+				ROW_NUMBER() OVER(
+                      		PARTITION BY T.PERIODSEQ,T.POS_PRIN,T.TIPO_DOCUMENTO,T.DEPOSITSEQ,T.EARNINGCODEID,T.EARNINGGROUPID
+                      		--ORDER BY T.ORDERID
+                      ) AS RN_TRX
+			FROM :TEMP_FINAL_PAGOS_BASES_15_01_RG T
+			WHERE 1 = (CASE 
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 0
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+					ELSE 0 
+				END)
+		;
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_FINAL_PAGOS_BASES_15_01_RG_DIF: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+		UPDATE F
+    	SET F.IMPORTE = F.IMPORTE + T.DIF
+    	FROM EXT.FINAL_REPEXT_FILE_TEST F
+    	INNER JOIN :TEMP_FINAL_PAGOS_BASES_15_01_RG_DIF T  ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+		AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID
+		AND F.ORDERID = T.ORDERID AND F.LINENUMBER = T.LINENUMBER AND F.SUBLINENUMBER = T.SUBLINENUMBER AND F.EVENTTYPEID = T.EVENTTYPEID AND F.COMPENSATIONDATE = T.COMPENSATIONDATE
+		AND T.RN_TRX = 1
+		;
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_FILE_TEST IMPORTE_DIF: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+
+			
+		
+		
+		---------------------------------------------------------------------------------------------------
+		-- 15-03_RT	
+		---------------------------------------------------------------------------------------------------
+		--PAGOS
+		TEMP_PAGOS_DIRECTOS_15_03_RT = SELECT *
+    		FROM :TEMP_PAGOS_DIRECTOS
+    		WHERE SUBSTRING(EARNINGGROUPID,7,5) = '03-RT'
+    		AND EARNINGCODEID LIKE  '15%';
+    		
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_PAGOS_DIRECTOS_15_03_RT: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+		--BASES
+		IF i_tipo_reparto = 'CIERRE' THEN
+			TEMP_BASES_15_03_RT = SELECT * 
+	    		FROM EXT.FINAL_BASES_REPARTO_POLIZA_FILE B
+	    		WHERE PERIODSEQ = i_periodSeq
+	    		-- EARNINGGROUPID = '01-RT'
+	    		AND PRODUCTID LIKE '032%'
+	    		-- EARNINGCODEID = '15'
+	    		AND EVENTTYPEID LIKE 'AS%';
+	    		
+	    	CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_BASES_15_03_RT: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+	    ELSE
+	    	TEMP_BASES_15_03_RT = SELECT * 
+	    		FROM EXT.FINAL_BASES_REPARTO_POLIZA_FILE_NUEVA_BASE_REPARTO B
+	    		WHERE PERIODSEQ = v_periodSeqAnterior
+	    		-- EARNINGGROUPID = '01-RT'
+	    		AND PRODUCTID LIKE '032%'
+	    		-- EARNINGCODEID = '15'
+	    		AND EVENTTYPEID LIKE 'AS%';
+	    		
+	    	CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_BASES_15_03_RT (BALANCE): ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+    	END IF;
+    	
+    	
+    	--BASES_TOTAL_IMPORTE
+    	BASES_TOTAL_IMPORTE_15_03_RT = 
+			SELECT POSITIONSEQ, SUM(IMP_SERV_ASISTENCIAS) AS SUMA_IMPORTE
+			FROM :TEMP_BASES_15_03_RT
+			WHERE IMP_SERV_ASISTENCIAS <> 0
+			GROUP BY POSITIONSEQ;
+			
+			
+    	--FINAL
+    	TEMP_FINAL_PAGOS_BASES_15_03_RT = SELECT P.PARTICIPANTSEQ,
+                                P.POSITIONSEQ,
+                                P.PERIODSEQ,
+                                :v_periodName AS PERIODO,
+                                P.POS_CALLIDUS POSITIONNAME,
+                                P.POS_PRIN,
+                                P.NIF,
+                                P.MANAGER_POS_PRIN,
+                                ORDERID,
+                                LINENUMBER,
+                                SUBLINENUMBER,
+                                EVENTTYPEID,
+                                PRODUCTID,
+                                CODIGO_POLIZA,
+                                COMPENSATIONDATE,
+                                ESTADO,
+                                P.PROGRAMA,
+                                P.TIPO_PAGO,
+                                P.DEPOSITO,
+                                P.DEPOSITSEQ,
+                                P.IMPORTE IMPORTE_PAGO,
+                                P.EARNINGCODEID,
+                                P.EARNINGGROUPID,
+                                P.TIPO_DOCUMENTO,
+                                P.TIPO_AGENTE,
+                                B.IMP_SERV_ASISTENCIAS AS IMPORTE,
+                                BT.SUMA_IMPORTE AS SUMA_IMPORTE,
+                                NULL AS TIPO_REPARTO,
+                                0 AS NUM_TRAMO,
+                                NULL AS REPARTO_TIPO_BASE,
+                                NULL AS REPARTO_PORCENTAJE,
+                                POLIZA_FISICA,
+                                POLIZA_CORREGIDA,
+                                PRIMA_CORREGIDA,
+                                PRIMA_NETA,
+                                PRIMA_NETA_ANUAL,
+                                PRIMA_COMIS_S4 PRIMA_COMIS,
+                                NULL AS COEF_TIPO_BASE,
+                                NULL AS COEF_CORRECTOR,
+                                COD_AGENTE,
+                                P.TIPO_LIQ
+    					FROM :TEMP_PAGOS_DIRECTOS_15_03_RT P
+    					INNER JOIN :TEMP_BASES_15_03_RT B ON P.POSITIONSEQ = B.POSITIONSEQ
+    					INNER JOIN :BASES_TOTAL_IMPORTE_15_03_RT BT ON BT.POSITIONSEQ = B.POSITIONSEQ
+    					WHERE 
+    					-- TIPO CONCEPTO: IMP_SERV_ASISTENCIAS
+    					B.IMP_SERV_ASISTENCIAS <> 0
+    					AND (
+    						(P.DEPOSITO = 'D-O-COM-ServiciosAsistencia-Pago10'  AND B.EVENTTYPEID = 'AS10')
+							OR (P.DEPOSITO = 'D-O-COM-ServiciosAsistencia-Pago50'  AND B.EVENTTYPEID = 'AS50')
+							OR (P.DEPOSITO = 'D-O-COM-ServiciosAsistencia-Pago90'  AND B.EVENTTYPEID = 'AS90')
+							OR (P.DEPOSITO = 'D-O-COM-ServiciosAsistencia-Pago91'  AND B.EVENTTYPEID = 'AS91')
+							OR (P.DEPOSITO = 'D-O-COM-ServiciosAsistencia-Pago110' AND B.EVENTTYPEID = 'AS110')
+							OR (P.DEPOSITO NOT LIKE 'D-O-COM-ServiciosAsistencia-Pago%' AND B.EVENTTYPEID LIKE 'AS%')
+    					)
+    					AND NOT EXISTS (
+    					    SELECT 1 
+    					    FROM EXT.FINAL_REPEXT_FILE_TEST X 
+    					    WHERE X.POS_PRIN       = P.POS_PRIN
+    					      AND X.PERIODSEQ      = P.PERIODSEQ
+    					      AND X.EARNINGCODEID  = P.EARNINGCODEID
+    					      AND X.EARNINGGROUPID = P.EARNINGGROUPID
+    					      AND X.TIPO_DOCUMENTO = P.TIPO_DOCUMENTO
+    					      AND X.ORDERID        = B.ORDERID
+    					      AND X.LINENUMBER     = B.LINENUMBER
+    					      AND X.SUBLINENUMBER  = B.SUBLINENUMBER
+    					      AND X.EVENTTYPEID    = B.EVENTTYPEID
+    					);
+    					
+    	CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_FINAL_PAGOS_BASES_15_03_RT: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+    	
+    	--LIQUIDACIÓN COMPLEMENTARIA
+		IF v_num_post > 1 AND i_tipo_reparto = 'CIERRE' THEN
+		
+			TEMP_PAGOS_DIRECTOS_15_03_RT_LC = SELECT SUM(IMPORTE) SUMA_PAGOS,PERIODSEQ,POS_PRIN,EARNINGGROUPID,EARNINGCODEID,DEPOSITO 
+				FROM :TEMP_FINAL_PAGOS_BASES_15_03_RT
+				WHERE TIPO_LIQ IN ('CIERRE','LIQ')
+				GROUP BY PERIODSEQ,POS_PRIN,EARNINGGROUPID,EARNINGCODEID,DEPOSITO;
+		
+			INSERT INTO EXT.FINAL_REPEXT_FILE_TEST("TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+		        ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+		        ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+		        ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ")
+		    SELECT "TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+		        ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE"*(-1),"TIPO_AGENTE","TIPO_DOCUMENTO",TF."EARNINGGROUPID"
+		        ,TF."EARNINGCODEID",TF.SUMA_IMPORTE,"DEPOSITSEQ",TF."DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+		        ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF",TF."POS_PRIN","POSITIONNAME","PERIODO",TF."PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ"
+		    FROM :TEMP_FINAL_PAGOS_BASES_15_03_RT TF 
+		    	INNER JOIN :TEMP_PAGOS_DIRECTOS_15_03_RT_LC TLC ON TF.PERIODSEQ = TLC.PERIODSEQ AND TF.POS_PRIN = TLC.POS_PRIN 
+		    	AND TF.EARNINGGROUPID = TLC.EARNINGGROUPID AND TF.EARNINGCODEID = TLC. EARNINGCODEID AND TF.DEPOSITO = TLC.DEPOSITO
+		    	AND 1 = (CASE WHEN SUMA_PAGOS <> SUMA_IMPORTE THEN 1 END); 
+		 END IF;
+    	-- FIN LIQUIDACIÓN COMPLEMENTARIA
+    	
+    	UPDATE F
+    	SET ESTADO_REPARTO = CASE 
+    		WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 2
+			WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 3
+			ELSE 4 
+		END
+		FROM EXT.FINAL_REPEXT_PAGOS_FILE_TEST F
+		INNER JOIN :TEMP_FINAL_PAGOS_BASES_15_03_RT T ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+		AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID;
+		
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_PAGOS_FILE_TEST ESTADOS ACTUALIZADOS: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+		
+		UPDATE F
+            SET ESTADO_REPARTO = CASE 
+    				WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 2
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 3
+					ELSE 4 
+				END --REPARTO CORRECTO
+			FROM :TEMP_REPEXT_PAGOS_REPARTO_FILE F
+			INNER JOIN :TEMP_FINAL_PAGOS_BASES_15_03_RT T ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+			AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+	--		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID
+			WHERE 1 = (CASE 
+    				WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 1
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+					ELSE 0 
+				END)
+			;
+        CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_REPEXT_PAGOS_REPARTO_FILE ESTADOS ACTUALIZADOS: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');   
+		
+		INSERT INTO EXT.FINAL_REPEXT_FILE_TEST("TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+            ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+            ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+            ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ")
+        SELECT "TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+            ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+            ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+            ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ"
+        FROM :TEMP_FINAL_PAGOS_BASES_15_03_RT
+        WHERE 1 = (
+        	CASE 
+        		WHEN (IMPORTE_PAGO - IFNULL(SUMA_IMPORTE,0)) = 0 THEN 1
+    			WHEN (IMPORTE_PAGO - IFNULL(SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+    		ELSE 0 
+    		END);
+		
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_FILE_TEST INSERTADOS: ' ||::ROWCOUNT, v_log_count, v_idproceso, 'info');	
+		---------------------------------------------------------------------------------------------------
+		
+		TEMP_FINAL_PAGOS_BASES_15_03_RT_DIF =
+			SELECT T.PERIODSEQ,T.POS_PRIN,T.TIPO_DOCUMENTO,T.DEPOSITSEQ,T.EARNINGCODEID,T.EARNINGGROUPID,T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0) AS DIF,
+				T.ORDERID,T.LINENUMBER,T.SUBLINENUMBER,T.EVENTTYPEID, T.COMPENSATIONDATE,
+				ROW_NUMBER() OVER(
+                      		PARTITION BY T.PERIODSEQ,T.POS_PRIN,T.TIPO_DOCUMENTO,T.DEPOSITSEQ,T.EARNINGCODEID,T.EARNINGGROUPID
+                      		--ORDER BY T.ORDERID
+                      ) AS RN_TRX
+			FROM :TEMP_FINAL_PAGOS_BASES_15_03_RT T
+			WHERE 1 = (CASE 
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 0
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+					ELSE 0 
+				END)
+		;
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_FINAL_PAGOS_BASES_15_03_RT_DIF: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+		UPDATE F
+    	SET F.IMPORTE = F.IMPORTE + T.DIF
+    	FROM EXT.FINAL_REPEXT_FILE_TEST F
+    	INNER JOIN :TEMP_FINAL_PAGOS_BASES_15_03_RT_DIF T  ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+		AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID
+		AND F.ORDERID = T.ORDERID AND F.LINENUMBER = T.LINENUMBER AND F.SUBLINENUMBER = T.SUBLINENUMBER AND F.EVENTTYPEID = T.EVENTTYPEID AND F.COMPENSATIONDATE = T.COMPENSATIONDATE
+		AND T.RN_TRX = 1
+		;
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_FILE_TEST IMPORTE_DIF: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+
+			
+		
+		---------------------------------------------------------------------------------------------------
+		-- 15-03_RG	
+		---------------------------------------------------------------------------------------------------
+		--PAGOS
+		TEMP_PAGOS_DIRECTOS_15_03_RG = SELECT *
+    		FROM :TEMP_PAGOS_DIRECTOS
+    		WHERE SUBSTRING(EARNINGGROUPID,7,5) = '03-RG'
+    		AND EARNINGCODEID LIKE  '15%';
+    		
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_PAGOS_DIRECTOS_15_03_RG: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+		--BASES
+		IF i_tipo_reparto = 'CIERRE' THEN
+			TEMP_BASES_15_03_RG = SELECT * 
+	    		FROM EXT.FINAL_BASES_REPARTO_POLIZA_FILE B
+	    		WHERE PERIODSEQ = i_periodSeq
+	    		-- EARNINGGROUPID = '03-RG'
+	    		AND PRODUCTID LIKE '03%' AND PRODUCTID NOT LIKE '032%'
+	    		-- EARNINGCODEID = '15'
+	    		AND EVENTTYPEID LIKE 'AS%';
+	    		
+	    	CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_BASES_15_03_RG: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+	    ELSE
+	    	TEMP_BASES_15_03_RG = SELECT * 
+    		FROM EXT.FINAL_BASES_REPARTO_POLIZA_FILE_NUEVA_BASE_REPARTO B
+    		WHERE PERIODSEQ = v_periodSeqAnterior
+    		-- EARNINGGROUPID = '03-RG'
+    		AND PRODUCTID LIKE '03%' AND PRODUCTID NOT LIKE '032%'
+    		-- EARNINGCODEID = '15'
+    		AND EVENTTYPEID LIKE 'AS%';
+    		
+    		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_BASES_15_03_RG (BALANCE): ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+    	END IF;
+    	
+    	--BASES_TOTAL_IMPORTE
+    	BASES_TOTAL_IMPORTE_15_03_RG = 
+			SELECT POSITIONSEQ, SUM(IMP_SERV_ASISTENCIAS) AS SUMA_IMPORTE
+			FROM :TEMP_BASES_15_03_RG
+			WHERE IMP_SERV_ASISTENCIAS <> 0
+			GROUP BY POSITIONSEQ;
+			
+    	--FINAL
+    	TEMP_FINAL_PAGOS_BASES_15_03_RG = SELECT P.PARTICIPANTSEQ,
+                                P.POSITIONSEQ,
+                                P.PERIODSEQ,
+                                :v_periodName AS PERIODO,
+                                P.POS_CALLIDUS POSITIONNAME,
+                                P.POS_PRIN,
+                                P.NIF,
+                                P.MANAGER_POS_PRIN,
+                                ORDERID,
+                                LINENUMBER,
+                                SUBLINENUMBER,
+                                EVENTTYPEID,
+                                PRODUCTID,
+                                CODIGO_POLIZA,
+                                COMPENSATIONDATE,
+                                ESTADO,
+                                P.PROGRAMA,
+                                P.TIPO_PAGO,
+                                P.DEPOSITO,
+                                P.DEPOSITSEQ,
+                                P.IMPORTE IMPORTE_PAGO,
+                                P.EARNINGCODEID,
+                                P.EARNINGGROUPID,
+                                P.TIPO_DOCUMENTO,
+                                P.TIPO_AGENTE,
+                                B.IMP_SERV_ASISTENCIAS AS IMPORTE,
+                                BT.SUMA_IMPORTE AS SUMA_IMPORTE,
+                                NULL AS TIPO_REPARTO,
+                                0 AS NUM_TRAMO,
+                                NULL AS REPARTO_TIPO_BASE,
+                                NULL AS REPARTO_PORCENTAJE,
+                                POLIZA_FISICA,
+                                POLIZA_CORREGIDA,
+                                PRIMA_CORREGIDA,
+                                PRIMA_NETA,
+                                PRIMA_NETA_ANUAL,
+                                PRIMA_COMIS_S4 PRIMA_COMIS,
+                                NULL AS COEF_TIPO_BASE,
+                                NULL AS COEF_CORRECTOR,
+                                COD_AGENTE,
+                                P.TIPO_LIQ
+    					FROM :TEMP_PAGOS_DIRECTOS_15_03_RG P
+    					INNER JOIN :TEMP_BASES_15_03_RG B ON P.POSITIONSEQ = B.POSITIONSEQ
+    					INNER JOIN :BASES_TOTAL_IMPORTE_15_03_RG BT ON BT.POSITIONSEQ = B.POSITIONSEQ
+    					WHERE 
+    					-- TIPO CONCEPTO: IMP_SERV_ASISTENCIAS
+    					B.IMP_SERV_ASISTENCIAS <> 0
+    					AND (
+    						(P.DEPOSITO = 'D-O-COM-ServiciosAsistencia-Pago10'  AND B.EVENTTYPEID = 'AS10')
+							OR (P.DEPOSITO = 'D-O-COM-ServiciosAsistencia-Pago50'  AND B.EVENTTYPEID = 'AS50')
+							OR (P.DEPOSITO = 'D-O-COM-ServiciosAsistencia-Pago90'  AND B.EVENTTYPEID = 'AS90')
+							OR (P.DEPOSITO = 'D-O-COM-ServiciosAsistencia-Pago91'  AND B.EVENTTYPEID = 'AS91')
+							OR (P.DEPOSITO = 'D-O-COM-ServiciosAsistencia-Pago110' AND B.EVENTTYPEID = 'AS110')
+							OR (P.DEPOSITO NOT LIKE 'D-O-COM-ServiciosAsistencia-Pago%' AND B.EVENTTYPEID LIKE 'AS%')
+    					)
+    					AND NOT EXISTS (
+    					    SELECT 1 
+    					    FROM EXT.FINAL_REPEXT_FILE_TEST X 
+    					    WHERE X.POS_PRIN       = P.POS_PRIN
+    					      AND X.PERIODSEQ      = P.PERIODSEQ
+    					      AND X.EARNINGCODEID  = P.EARNINGCODEID
+    					      AND X.EARNINGGROUPID = P.EARNINGGROUPID
+    					      AND X.TIPO_DOCUMENTO = P.TIPO_DOCUMENTO
+    					      AND X.ORDERID        = B.ORDERID
+    					      AND X.LINENUMBER     = B.LINENUMBER
+    					      AND X.SUBLINENUMBER  = B.SUBLINENUMBER
+    					      AND X.EVENTTYPEID    = B.EVENTTYPEID
+    					);
+    					
+    	CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_FINAL_PAGOS_BASES_15_03_RG: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+    	
+    	--LIQUIDACIÓN COMPLEMENTARIA
+		IF v_num_post > 1 AND i_tipo_reparto = 'CIERRE' THEN
+		
+			TEMP_PAGOS_DIRECTOS_15_03_RG_LC = SELECT SUM(IMPORTE) SUMA_PAGOS,PERIODSEQ,POS_PRIN,EARNINGGROUPID,EARNINGCODEID,DEPOSITO 
+				FROM :TEMP_FINAL_PAGOS_BASES_15_03_RG
+				WHERE TIPO_LIQ IN ('CIERRE','LIQ')
+				GROUP BY PERIODSEQ,POS_PRIN,EARNINGGROUPID,EARNINGCODEID,DEPOSITO;
+		
+			INSERT INTO EXT.FINAL_REPEXT_FILE_TEST("TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+		        ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+		        ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+		        ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ")
+		    SELECT "TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+		        ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE"*(-1),"TIPO_AGENTE","TIPO_DOCUMENTO",TF."EARNINGGROUPID"
+		        ,TF."EARNINGCODEID",TF.SUMA_IMPORTE,"DEPOSITSEQ",TF."DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+		        ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF",TF."POS_PRIN","POSITIONNAME","PERIODO",TF."PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ"
+		    FROM :TEMP_FINAL_PAGOS_BASES_15_03_RG TF 
+		    	INNER JOIN :TEMP_PAGOS_DIRECTOS_15_03_RG_LC TLC ON TF.PERIODSEQ = TLC.PERIODSEQ AND TF.POS_PRIN = TLC.POS_PRIN 
+		    	AND TF.EARNINGGROUPID = TLC.EARNINGGROUPID AND TF.EARNINGCODEID = TLC. EARNINGCODEID AND TF.DEPOSITO = TLC.DEPOSITO
+		    	AND 1 = (CASE WHEN SUMA_PAGOS <> SUMA_IMPORTE THEN 1 END); 
+		 END IF;
+    	-- FIN LIQUIDACIÓN COMPLEMENTARIA
+    	
+    	UPDATE F
+    	SET ESTADO_REPARTO = CASE 
+    		WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 2
+			WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 3
+			ELSE 4 
+		END
+		FROM EXT.FINAL_REPEXT_PAGOS_FILE_TEST F
+		INNER JOIN :TEMP_FINAL_PAGOS_BASES_15_03_RG T ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+		AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID;
+		
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_PAGOS_FILE_TEST ESTADOS ACTUALIZADOS: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+		
+		UPDATE F
+            SET ESTADO_REPARTO = CASE 
+    				WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 2
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 3
+					ELSE 4 
+				END --REPARTO CORRECTO
+			FROM :TEMP_REPEXT_PAGOS_REPARTO_FILE F
+			INNER JOIN :TEMP_FINAL_PAGOS_BASES_15_03_RG T ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+			AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+	--		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID
+			WHERE 1 = (CASE 
+    				WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 1
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+					ELSE 0 
+				END)
+			;
+        CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_REPEXT_PAGOS_REPARTO_FILE ESTADOS ACTUALIZADOS: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');   
+	
+		INSERT INTO EXT.FINAL_REPEXT_FILE_TEST("TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+            ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+            ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+            ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ")
+        SELECT "TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+            ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+            ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+            ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ"
+        FROM :TEMP_FINAL_PAGOS_BASES_15_03_RG
+        WHERE 1 = (
+        	CASE 
+        		WHEN (IMPORTE_PAGO - IFNULL(SUMA_IMPORTE,0)) = 0 THEN 1
+    			WHEN (IMPORTE_PAGO - IFNULL(SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+    		ELSE 0 
+    		END);
+        
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_FILE_TEST INSERTADOS: ' ||::ROWCOUNT, v_log_count, v_idproceso, 'info');	        
+-----------------------------------------------------------------------------------------------------------------------
+		
+		TEMP_FINAL_PAGOS_BASES_15_03_RG_DIF =
+			SELECT T.PERIODSEQ,T.POS_PRIN,T.TIPO_DOCUMENTO,T.DEPOSITSEQ,T.EARNINGCODEID,T.EARNINGGROUPID,T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0) AS DIF,
+				T.ORDERID,T.LINENUMBER,T.SUBLINENUMBER,T.EVENTTYPEID, T.COMPENSATIONDATE,
+				ROW_NUMBER() OVER(
+                      		PARTITION BY T.PERIODSEQ,T.POS_PRIN,T.TIPO_DOCUMENTO,T.DEPOSITSEQ,T.EARNINGCODEID,T.EARNINGGROUPID
+                      		--ORDER BY T.ORDERID
+                      ) AS RN_TRX
+			FROM :TEMP_FINAL_PAGOS_BASES_15_03_RG T
+			WHERE 1 = (CASE 
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 0
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+					ELSE 0 
+				END)
+		;
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_FINAL_PAGOS_BASES_15_03_RG_DIF: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+		UPDATE F
+    	SET F.IMPORTE = F.IMPORTE + T.DIF
+    	FROM EXT.FINAL_REPEXT_FILE_TEST F
+    	INNER JOIN :TEMP_FINAL_PAGOS_BASES_15_03_RG_DIF T  ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+		AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID
+		AND F.ORDERID = T.ORDERID AND F.LINENUMBER = T.LINENUMBER AND F.SUBLINENUMBER = T.SUBLINENUMBER AND F.EVENTTYPEID = T.EVENTTYPEID AND F.COMPENSATIONDATE = T.COMPENSATIONDATE
+		AND T.RN_TRX = 1
+		;
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_FILE_TEST IMPORTE_DIF: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+
+	 
+
+		---------------------------------------------------------------------------------------------------
+		-- 1_MAC38P01_RT	
+		---------------------------------------------------------------------------------------------------
+		--PAGOS
+		TEMP_PAGOS_DIRECTOS_1_MAC38P01_RT = SELECT *
+    		FROM :TEMP_PAGOS_DIRECTOS
+    		WHERE SUBSTRING(EARNINGCODEID,1,1) = '1'
+    			AND (PROGRAMA = 'MACB38P' OR DEPOSITO LIKE 'D-%-Pagos-Fijos');
+    		
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_PAGOS_DIRECTOS_1_MAC38P01_RT: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+		--BASES
+		IF i_tipo_reparto = 'CIERRE' THEN
+			TEMP_BASES_1_MAC38P01_RT = SELECT * 
+	    		FROM EXT.FINAL_BASES_REPARTO_POLIZA_FILE B
+	    		WHERE PERIODSEQ = i_periodSeq
+	    		AND EVENTTYPEID = 'Pago Comercial';
+	    		
+	    	CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_BASES_1_MAC38P01_RT: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+	    ELSE
+	    	TEMP_BASES_1_MAC38P01_RT = SELECT * 
+    		FROM EXT.FINAL_BASES_REPARTO_POLIZA_FILE_NUEVA_BASE_REPARTO B
+    		WHERE PERIODSEQ = v_periodSeqAnterior
+    		AND EVENTTYPEID = 'Pago Comercial';
+    		
+    		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_BASES_1_MAC38P01_RT (BALANCE): ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+    	END IF;
+    	
+    	
+--     	--BASES_TOTAL_IMPORTE
+-- BASES_TOTAL_IMPORTE_1_MAC38P01_RT = 
+-- 			SELECT POSITIONSEQ, SUM(IMPORTE_COMISION) AS SUMA_IMPORTE
+-- 			FROM :TEMP_BASES_1_MAC38P01_RT
+-- 			WHERE IMPORTE_COMISION <> 0
+-- 			GROUP BY POSITIONSEQ;
+			
+    	--FINAL
+    	TEMP_FINAL_PAGOS_BASES_1_MAC38P01_RT = SELECT P.PARTICIPANTSEQ,
+                                P.POSITIONSEQ,
+                                P.PERIODSEQ,
+                                :v_periodName AS PERIODO,
+                                P.POS_CALLIDUS POSITIONNAME,
+                                P.POS_PRIN,
+                                P.NIF,
+                                P.MANAGER_POS_PRIN,
+                                ORDERID,
+                                LINENUMBER,
+                                SUBLINENUMBER,
+                                EVENTTYPEID,
+                                PRODUCTID,
+                                CODIGO_POLIZA,
+                                COMPENSATIONDATE,
+                                ESTADO,
+                                P.PROGRAMA,
+                                P.TIPO_PAGO,
+                                P.DEPOSITO,
+                                P.DEPOSITSEQ,
+                                P.IMPORTE IMPORTE_PAGO,
+                                P.EARNINGCODEID,
+                                P.EARNINGGROUPID,
+                                P.TIPO_DOCUMENTO,
+                                P.TIPO_AGENTE,
+                                B.IMPORTE_COMISION AS IMPORTE,
+                                (SELECT SUM(IMPORTE_COMISION)
+                                	FROM :TEMP_BASES_1_MAC38P01_RT S
+                                	WHERE S.POSITIONSEQ = B.POSITIONSEQ
+                                	AND S.PRODUCTID LIKE '%'||RIGHT(P.EARNINGCODEID,5) -- LFC 20251204: Faltan condiciones?
+                                ) AS SUMA_IMPORTE,
+                                NULL AS TIPO_REPARTO,
+                                0 AS NUM_TRAMO,
+                                NULL AS REPARTO_TIPO_BASE,
+                                NULL AS REPARTO_PORCENTAJE,
+                                POLIZA_FISICA,
+                                POLIZA_CORREGIDA,
+                                PRIMA_CORREGIDA,
+                                PRIMA_NETA,
+                                PRIMA_NETA_ANUAL,
+                                PRIMA_COMIS_S4 PRIMA_COMIS,
+                                NULL AS COEF_TIPO_BASE,
+                                NULL AS COEF_CORRECTOR,
+                                COD_AGENTE,
+                                P.TIPO_LIQ
+    					FROM :TEMP_PAGOS_DIRECTOS_1_MAC38P01_RT P
+    					INNER JOIN :TEMP_BASES_1_MAC38P01_RT B ON P.POSITIONSEQ = B.POSITIONSEQ
+    					--INNER JOIN :BASES_TOTAL_IMPORTE_1_MAC38P01_RT BT ON BT.POSITIONSEQ = B.POSITIONSEQ
+    					WHERE 
+    					-- TIPO CONCEPTO: IMPORTE_COMISION
+    					B.IMPORTE_COMISION <> 0
+    					AND PRODUCTID LIKE '%' || RIGHT(P.EARNINGCODEID,5) 
+    					AND CODIGO_POLIZA = P.EARNINGGROUPID AND ESTADO = SUBSTR(P.EARNINGCODEID,1,3)
+    					AND NOT EXISTS (
+    					    SELECT 1 
+    					    FROM EXT.FINAL_REPEXT_FILE_TEST X 
+    					    WHERE X.POS_PRIN       = P.POS_PRIN
+    					      AND X.PERIODSEQ      = P.PERIODSEQ
+    					      AND X.EARNINGCODEID  = P.EARNINGCODEID
+    					      AND X.EARNINGGROUPID = P.EARNINGGROUPID
+    					      AND X.TIPO_DOCUMENTO = P.TIPO_DOCUMENTO
+    					      AND X.ORDERID        = B.ORDERID
+    					      AND X.LINENUMBER     = B.LINENUMBER
+    					      AND X.SUBLINENUMBER  = B.SUBLINENUMBER
+    					      AND X.EVENTTYPEID    = B.EVENTTYPEID
+    					);
+    					
+    	CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_FINAL_PAGOS_BASES_1_MAC38P01_RT: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+    	
+    	--LIQUIDACIÓN COMPLEMENTARIA
+		IF v_num_post > 1 AND i_tipo_reparto = 'CIERRE' THEN
+		
+			TEMP_PAGOS_DIRECTOS_1_MAC38P01_RT_LC = SELECT SUM(IMPORTE) SUMA_PAGOS,PERIODSEQ,POS_PRIN,EARNINGGROUPID,EARNINGCODEID,DEPOSITO 
+				FROM :TEMP_FINAL_PAGOS_BASES_1_MAC38P01_RT
+				WHERE TIPO_LIQ IN ('CIERRE','LIQ')
+				GROUP BY PERIODSEQ,POS_PRIN,EARNINGGROUPID,EARNINGCODEID,DEPOSITO;
+		
+			INSERT INTO EXT.FINAL_REPEXT_FILE_TEST("TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+		        ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+		        ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+		        ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ")
+		    SELECT "TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+		        ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE"*(-1),"TIPO_AGENTE","TIPO_DOCUMENTO",TF."EARNINGGROUPID"
+		        ,TF."EARNINGCODEID",TF.SUMA_IMPORTE,"DEPOSITSEQ",TF."DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+		        ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF",TF."POS_PRIN","POSITIONNAME","PERIODO",TF."PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ"
+		    FROM :TEMP_FINAL_PAGOS_BASES_1_MAC38P01_RT TF 
+		    	INNER JOIN :TEMP_PAGOS_DIRECTOS_1_MAC38P01_RT_LC TLC ON TF.PERIODSEQ = TLC.PERIODSEQ AND TF.POS_PRIN = TLC.POS_PRIN 
+		    	AND TF.EARNINGGROUPID = TLC.EARNINGGROUPID AND TF.EARNINGCODEID = TLC. EARNINGCODEID AND TF.DEPOSITO = TLC.DEPOSITO
+		    	AND 1 = (CASE WHEN SUMA_PAGOS <> SUMA_IMPORTE THEN 1 END); 
+		 END IF;
+    	-- FIN LIQUIDACIÓN COMPLEMENTARIA
+    	
+    	UPDATE F
+    	SET ESTADO_REPARTO = CASE 
+    		WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 2
+			WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 3
+			ELSE 4 
+		END
+		FROM EXT.FINAL_REPEXT_PAGOS_FILE_TEST F
+		INNER JOIN :TEMP_FINAL_PAGOS_BASES_1_MAC38P01_RT T ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+		AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID;
+		
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_PAGOS_FILE_TEST ESTADOS ACTUALIZADOS: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+		
+		UPDATE F
+            SET ESTADO_REPARTO = CASE 
+    				WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 2
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 3
+					ELSE 4 
+				END --REPARTO CORRECTO
+			FROM :TEMP_REPEXT_PAGOS_REPARTO_FILE F
+			INNER JOIN :TEMP_FINAL_PAGOS_BASES_1_MAC38P01_RT T ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+			AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+			WHERE 1 = (CASE 
+    				WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 1
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+					ELSE 0 
+				END)
+	--		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID
+			;
+        CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_REPEXT_PAGOS_REPARTO_FILE ESTADOS ACTUALIZADOS: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');   
+                                   
+		
+		INSERT INTO EXT.FINAL_REPEXT_FILE_TEST("TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+            ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+            ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+            ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ")
+        SELECT "TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+            ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+            ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+            ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ"
+        FROM :TEMP_FINAL_PAGOS_BASES_1_MAC38P01_RT
+        WHERE 1 = (
+        	CASE 
+        		WHEN (IMPORTE_PAGO - IFNULL(SUMA_IMPORTE,0)) = 0 THEN 1
+    			WHEN (IMPORTE_PAGO - IFNULL(SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+    		ELSE 0 
+    		END);
+
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_FILE_TEST INSERTADOS: ' ||::ROWCOUNT, v_log_count, v_idproceso, 'info');	
+		---------------------------------------------------------------------------------------------------
+		
+		TEMP_FINAL_PAGOS_BASES_1_MAC38P01_RT_DIF =
+			SELECT T.PERIODSEQ,T.POS_PRIN,T.TIPO_DOCUMENTO,T.DEPOSITSEQ,T.EARNINGCODEID,T.EARNINGGROUPID,T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0) AS DIF,
+				T.ORDERID,T.LINENUMBER,T.SUBLINENUMBER,T.EVENTTYPEID, T.COMPENSATIONDATE,
+				ROW_NUMBER() OVER(
+                      		PARTITION BY T.PERIODSEQ,T.POS_PRIN,T.TIPO_DOCUMENTO,T.DEPOSITSEQ,T.EARNINGCODEID,T.EARNINGGROUPID
+                      		--ORDER BY T.ORDERID
+                      ) AS RN_TRX
+			FROM :TEMP_FINAL_PAGOS_BASES_1_MAC38P01_RT T
+			WHERE 1 = (CASE 
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 0
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+					ELSE 0 
+				END)
+		;
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_FINAL_PAGOS_BASES_1_MAC38P01_RT_DIF: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+		UPDATE F
+    	SET F.IMPORTE = F.IMPORTE + T.DIF
+    	FROM EXT.FINAL_REPEXT_FILE_TEST F
+    	INNER JOIN :TEMP_FINAL_PAGOS_BASES_1_MAC38P01_RT_DIF T  ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+		AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID
+		AND F.ORDERID = T.ORDERID AND F.LINENUMBER = T.LINENUMBER AND F.SUBLINENUMBER = T.SUBLINENUMBER AND F.EVENTTYPEID = T.EVENTTYPEID AND F.COMPENSATIONDATE = T.COMPENSATIONDATE
+		AND T.RN_TRX = 1
+		;
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_FILE_TEST IMPORTE_DIF: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+
+			
+		
+	
+		
+		---------------------------------------------------------------------------------------------------
+		-- 1_MAC38P01_RG	
+		---------------------------------------------------------------------------------------------------
+		--PAGOS
+		TEMP_PAGOS_DIRECTOS_1_MAC38P01_RG = SELECT *
+    		FROM :TEMP_PAGOS_DIRECTOS
+    		WHERE SUBSTRING(EARNINGCODEID,1,1) = '1'
+    			AND (PROGRAMA = 'MACB38P' OR DEPOSITO LIKE 'D-%-Pagos-Fijos');
+    		
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_PAGOS_DIRECTOS_1_MAC38P01_RG: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+		--BASES
+		IF i_tipo_reparto = 'CIERRE' THEN
+			TEMP_BASES_1_MAC38P01_RG = SELECT * 
+	    		FROM EXT.FINAL_BASES_REPARTO_POLIZA_FILE B
+	    		WHERE PERIODSEQ = i_periodSeq
+	    		AND EVENTTYPEID = 'Pago Comercial';
+	    		
+	    	CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_BASES_1_MAC38P01_RG: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+	    ELSE
+	    	TEMP_BASES_1_MAC38P01_RG = SELECT * 
+	    		FROM EXT.FINAL_BASES_REPARTO_POLIZA_FILE_NUEVA_BASE_REPARTO B
+	    		WHERE PERIODSEQ = v_periodSeqAnterior
+	    		AND EVENTTYPEID = 'Pago Comercial';
+	    		
+	    	CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_BASES_1_MAC38P01_RG (BALANCE): ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+	    END IF;
+    	
+    	
+   -- 	--BASES_TOTAL_IMPORTE
+   -- 	BASES_TOTAL_IMPORTE_1_MAC38P01_RG = 
+			-- SELECT POSITIONSEQ, SUM(IMPORTE_COMISION) AS SUMA_IMPORTE
+			-- FROM :TEMP_BASES_1_MAC38P01_RG
+			-- WHERE IMPORTE_COMISION <> 0
+			-- GROUP BY POSITIONSEQ;
+		
+    	--FINAL
+    	TEMP_FINAL_PAGOS_BASES_1_MAC38P01_RG = SELECT P.PARTICIPANTSEQ,
+                                P.POSITIONSEQ,
+                                P.PERIODSEQ,
+                                :v_periodName AS PERIODO,
+                                P.POS_CALLIDUS POSITIONNAME,
+                                P.POS_PRIN,
+                                P.NIF,
+                                P.MANAGER_POS_PRIN,
+                                ORDERID,
+                                LINENUMBER,
+                                SUBLINENUMBER,
+                                EVENTTYPEID,
+                                PRODUCTID,
+                                CODIGO_POLIZA,
+                                COMPENSATIONDATE,
+                                ESTADO,
+                                P.PROGRAMA,
+                                P.TIPO_PAGO,
+                                P.DEPOSITO,
+                                P.DEPOSITSEQ,
+                                P.IMPORTE IMPORTE_PAGO,
+                                P.EARNINGCODEID,
+                                P.EARNINGGROUPID,
+                                P.TIPO_DOCUMENTO,
+                                P.TIPO_AGENTE,
+                                B.IMPORTE_COMISION AS IMPORTE,
+                                (SELECT SUM(IMPORTE_COMISION)
+                                	FROM :TEMP_BASES_1_MAC38P01_RG S
+                                	WHERE S.POSITIONSEQ = B.POSITIONSEQ
+                                	AND S.PRODUCTID LIKE '%'||RIGHT(P.EARNINGCODEID,5)
+                                ) AS SUMA_IMPORTE,
+                                NULL AS TIPO_REPARTO,
+                                0 AS NUM_TRAMO,
+                                NULL AS REPARTO_TIPO_BASE,
+                                NULL AS REPARTO_PORCENTAJE,
+                                POLIZA_FISICA,
+                                POLIZA_CORREGIDA,
+                                PRIMA_CORREGIDA,
+                                PRIMA_NETA,
+                                PRIMA_NETA_ANUAL,
+                                PRIMA_COMIS_S4 PRIMA_COMIS,
+                                NULL AS COEF_TIPO_BASE,
+                                NULL AS COEF_CORRECTOR,
+                                COD_AGENTE,
+                                P.TIPO_LIQ
+    					FROM :TEMP_PAGOS_DIRECTOS_1_MAC38P01_RG P
+    					INNER JOIN :TEMP_BASES_1_MAC38P01_RG B ON P.POSITIONSEQ = B.POSITIONSEQ
+    					--INNER JOIN :BASES_TOTAL_IMPORTE_1_MAC38P01_RG BT ON BT.POSITIONSEQ = B.POSITIONSEQ
+    					WHERE 
+    					-- TIPO CONCEPTO: IMPORTE_COMISION
+    					B.IMPORTE_COMISION <> 0
+    					AND PRODUCTID LIKE '%' || RIGHT(P.EARNINGCODEID,5) 
+						AND CODIGO_POLIZA = P.EARNINGGROUPID AND ESTADO = SUBSTR(P.EARNINGCODEID,1,3)
+    					AND NOT EXISTS (
+    					    SELECT 1 
+    					    FROM EXT.FINAL_REPEXT_FILE_TEST X 
+    					    WHERE X.POS_PRIN       = P.POS_PRIN
+    					      AND X.PERIODSEQ      = P.PERIODSEQ
+    					      AND X.EARNINGCODEID  = P.EARNINGCODEID
+    					      AND X.EARNINGGROUPID = P.EARNINGGROUPID
+    					      AND X.TIPO_DOCUMENTO = P.TIPO_DOCUMENTO
+    					      AND X.ORDERID        = B.ORDERID
+    					      AND X.LINENUMBER     = B.LINENUMBER
+    					      AND X.SUBLINENUMBER  = B.SUBLINENUMBER
+    					      AND X.EVENTTYPEID    = B.EVENTTYPEID
+    					);
+    					
+    	CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_FINAL_PAGOS_BASES_1_MAC38P01_RG: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+    	
+    	--LIQUIDACIÓN COMPLEMENTARIA
+		IF v_num_post > 1 AND i_tipo_reparto = 'CIERRE' THEN
+		
+			TEMP_PAGOS_DIRECTOS_1_MAC38P01_RG_LC = SELECT SUM(IMPORTE) SUMA_PAGOS,PERIODSEQ,POS_PRIN,EARNINGGROUPID,EARNINGCODEID,DEPOSITO 
+				FROM :TEMP_FINAL_PAGOS_BASES_1_MAC38P01_RG
+				WHERE TIPO_LIQ IN ('CIERRE','LIQ')
+				GROUP BY PERIODSEQ,POS_PRIN,EARNINGGROUPID,EARNINGCODEID,DEPOSITO;
+		
+			INSERT INTO EXT.FINAL_REPEXT_FILE_TEST("TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+		        ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+		        ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+		        ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ")
+		    SELECT "TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+		        ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE"*(-1),"TIPO_AGENTE","TIPO_DOCUMENTO",TF."EARNINGGROUPID"
+		        ,TF."EARNINGCODEID",TF.SUMA_IMPORTE,"DEPOSITSEQ",TF."DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+		        ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF",TF."POS_PRIN","POSITIONNAME","PERIODO",TF."PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ"
+		    FROM :TEMP_FINAL_PAGOS_BASES_1_MAC38P01_RG TF 
+		    	INNER JOIN :TEMP_PAGOS_DIRECTOS_1_MAC38P01_RG_LC TLC ON TF.PERIODSEQ = TLC.PERIODSEQ AND TF.POS_PRIN = TLC.POS_PRIN 
+		    	AND TF.EARNINGGROUPID = TLC.EARNINGGROUPID AND TF.EARNINGCODEID = TLC. EARNINGCODEID AND TF.DEPOSITO = TLC.DEPOSITO
+		    	AND 1 = (CASE WHEN SUMA_PAGOS <> SUMA_IMPORTE THEN 1 END); 
+		 END IF;
+    	-- FIN LIQUIDACIÓN COMPLEMENTARIA
+    	
+    	UPDATE F
+    	SET ESTADO_REPARTO = CASE 
+    		WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 2
+			WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 3
+			ELSE 4 
+		END
+		FROM EXT.FINAL_REPEXT_PAGOS_FILE_TEST F
+		INNER JOIN :TEMP_FINAL_PAGOS_BASES_1_MAC38P01_RG T ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+		AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID;
+		
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_PAGOS_FILE_TEST ESTADOS ACTUALIZADOS: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+		
+		UPDATE F
+            SET ESTADO_REPARTO = CASE 
+    				WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 2
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 3
+					ELSE 4 
+				END --REPARTO CORRECTO
+			FROM :TEMP_REPEXT_PAGOS_REPARTO_FILE F
+			INNER JOIN :TEMP_FINAL_PAGOS_BASES_1_MAC38P01_RG T ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+			AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+	--		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID
+			WHERE 1 = (CASE 
+    				WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 1
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+					ELSE 0 
+				END)
+			;
+        CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_REPEXT_PAGOS_REPARTO_FILE ESTADOS ACTUALIZADOS: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');   
+		
+		INSERT INTO EXT.FINAL_REPEXT_FILE_TEST("TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+            ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+            ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+            ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ")
+        SELECT "TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+            ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+            ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+            ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ"
+        FROM :TEMP_FINAL_PAGOS_BASES_1_MAC38P01_RG
+        WHERE 1 = (
+        	CASE 
+        		WHEN (IMPORTE_PAGO - IFNULL(SUMA_IMPORTE,0)) = 0 THEN 1
+    			WHEN (IMPORTE_PAGO - IFNULL(SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+    		ELSE 0 
+    		END);
+
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_FILE_TEST INSERTADOS: ' ||::ROWCOUNT, v_log_count, v_idproceso, 'info');			
+		---------------------------------------------------------------------------------------------------
+		
+		TEMP_FINAL_PAGOS_BASES_1_MAC38P01_RG_DIF =
+			SELECT T.PERIODSEQ,T.POS_PRIN,T.TIPO_DOCUMENTO,T.DEPOSITSEQ,T.EARNINGCODEID,T.EARNINGGROUPID,T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0) AS DIF,
+				T.ORDERID,T.LINENUMBER,T.SUBLINENUMBER,T.EVENTTYPEID, T.COMPENSATIONDATE,
+				ROW_NUMBER() OVER(
+                      		PARTITION BY T.PERIODSEQ,T.POS_PRIN,T.TIPO_DOCUMENTO,T.DEPOSITSEQ,T.EARNINGCODEID,T.EARNINGGROUPID
+                      		--ORDER BY T.ORDERID
+                      ) AS RN_TRX
+			FROM :TEMP_FINAL_PAGOS_BASES_1_MAC38P01_RG T
+			WHERE 1 = (CASE 
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 0
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+					ELSE 0 
+				END)
+		;
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_FINAL_PAGOS_BASES_1_MAC38P01_RG_DIF: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+		UPDATE F
+    	SET F.IMPORTE = F.IMPORTE + T.DIF
+    	FROM EXT.FINAL_REPEXT_FILE_TEST F
+    	INNER JOIN :TEMP_FINAL_PAGOS_BASES_1_MAC38P01_RG_DIF T  ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+		AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID
+		AND F.ORDERID = T.ORDERID AND F.LINENUMBER = T.LINENUMBER AND F.SUBLINENUMBER = T.SUBLINENUMBER AND F.EVENTTYPEID = T.EVENTTYPEID AND F.COMPENSATIONDATE = T.COMPENSATIONDATE
+		AND T.RN_TRX = 1
+		;
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_FILE_TEST IMPORTE_DIF: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+
+			
+		
+		
+		---------------------------------------------------------------------------------------------------
+		-- 1_MAC38P03_RT	
+		---------------------------------------------------------------------------------------------------
+		--PAGOS
+		TEMP_PAGOS_DIRECTOS_1_MAC38P03_RT = SELECT *
+    		FROM :TEMP_PAGOS_DIRECTOS
+    		WHERE SUBSTRING(EARNINGCODEID,1,1) = '1'
+    			AND (PROGRAMA = 'MACB38P' OR DEPOSITO LIKE 'D-%-Pagos-Fijos');
+    		
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_PAGOS_DIRECTOS_1_MAC38P03_RT: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+		--BASES
+		IF i_tipo_reparto = 'CIERRE' THEN
+			TEMP_BASES_1_MAC38P03_RT = SELECT * 
+	    		FROM EXT.FINAL_BASES_REPARTO_POLIZA_FILE B
+	    		WHERE PERIODSEQ = i_periodSeq
+	    		-- EARNINGGROUPID = '01-RT'
+	    		-- AND PRODUCTID LIKE '032%'
+	    		-- EARNINGCODEID = '15'
+	    		AND EVENTTYPEID = 'Pago Comercial';
+	    		
+	    	CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_BASES_1_MAC38P03_RT: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+	    ELSE
+	    	TEMP_BASES_1_MAC38P03_RT = SELECT * 
+	    		FROM EXT.FINAL_BASES_REPARTO_POLIZA_FILE_NUEVA_BASE_REPARTO B
+	    		WHERE PERIODSEQ = v_periodSeqAnterior
+	    		-- EARNINGGROUPID = '01-RT'
+	    		-- AND PRODUCTID LIKE '032%'
+	    		-- EARNINGCODEID = '15'
+	    		AND EVENTTYPEID = 'Pago Comercial';
+	    		
+	    	CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_BASES_1_MAC38P03_RT (BALANCE):' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+	    END IF;
+    	
+    	
+   -- 	--BASES_TOTAL_IMPORTE
+   -- 	BASES_TOTAL_IMPORTE_1_MAC38P03_RT = 
+			-- SELECT POSITIONSEQ, SUM(IMPORTE_COMISION) AS SUMA_IMPORTE
+			-- FROM :TEMP_BASES_1_MAC38P03_RT
+			-- WHERE IMPORTE_COMISION <> 0
+			-- GROUP BY POSITIONSEQ;
+			
+			
+    	--FINAL
+    	TEMP_FINAL_PAGOS_BASES_1_MAC38P03_RT = SELECT P.PARTICIPANTSEQ,
+                                P.POSITIONSEQ,
+                                P.PERIODSEQ,
+                                :v_periodName AS PERIODO,
+                                P.POS_CALLIDUS POSITIONNAME,
+                                P.POS_PRIN,
+                                P.NIF,
+                                P.MANAGER_POS_PRIN,
+                                ORDERID,
+                                LINENUMBER,
+                                SUBLINENUMBER,
+                                EVENTTYPEID,
+                                PRODUCTID,
+                                CODIGO_POLIZA,
+                                COMPENSATIONDATE,
+                                ESTADO,
+                                P.PROGRAMA,
+                                P.TIPO_PAGO,
+                                P.DEPOSITO,
+                                P.DEPOSITSEQ,
+                                P.IMPORTE IMPORTE_PAGO,
+                                P.EARNINGCODEID,
+                                P.EARNINGGROUPID,
+                                P.TIPO_DOCUMENTO,
+                                P.TIPO_AGENTE,
+                                B.IMPORTE_COMISION AS IMPORTE,
+                                (SELECT SUM(IMPORTE_COMISION)
+                                	FROM :TEMP_BASES_1_MAC38P03_RT S
+                                	WHERE S.POSITIONSEQ = B.POSITIONSEQ
+                                	AND S.PRODUCTID LIKE '%'||RIGHT(P.EARNINGCODEID,5)
+                                ) AS SUMA_IMPORTE,
+                                NULL AS TIPO_REPARTO,
+                                0 AS NUM_TRAMO,
+                                NULL AS REPARTO_TIPO_BASE,
+                                NULL AS REPARTO_PORCENTAJE,
+                                POLIZA_FISICA,
+                                POLIZA_CORREGIDA,
+                                PRIMA_CORREGIDA,
+                                PRIMA_NETA,
+                                PRIMA_NETA_ANUAL,
+                                PRIMA_COMIS_S4 PRIMA_COMIS,
+                                NULL AS COEF_TIPO_BASE,
+                                NULL AS COEF_CORRECTOR,
+                                COD_AGENTE,
+                                P.TIPO_LIQ
+    					FROM :TEMP_PAGOS_DIRECTOS_1_MAC38P03_RT P
+    					INNER JOIN :TEMP_BASES_1_MAC38P03_RT B ON P.POSITIONSEQ = B.POSITIONSEQ
+    					--INNER JOIN :BASES_TOTAL_IMPORTE_1_MAC38P03_RT BT ON BT.POSITIONSEQ = B.POSITIONSEQ
+    					WHERE 
+    					-- TIPO CONCEPTO: IMPORTE_COMISION
+    					B.IMPORTE_COMISION <> 0
+    					AND PRODUCTID LIKE '%' || RIGHT(P.EARNINGCODEID,5) 
+						AND CODIGO_POLIZA = P.EARNINGGROUPID AND ESTADO = SUBSTR(P.EARNINGCODEID,1,3)
+    					AND NOT EXISTS (
+    					    SELECT 1 
+    					    FROM EXT.FINAL_REPEXT_FILE_TEST X 
+    					    WHERE X.POS_PRIN       = P.POS_PRIN
+    					      AND X.PERIODSEQ      = P.PERIODSEQ
+    					      AND X.EARNINGCODEID  = P.EARNINGCODEID
+    					      AND X.EARNINGGROUPID = P.EARNINGGROUPID
+    					      AND X.TIPO_DOCUMENTO = P.TIPO_DOCUMENTO
+    					      AND X.ORDERID        = B.ORDERID
+    					      AND X.LINENUMBER     = B.LINENUMBER
+    					      AND X.SUBLINENUMBER  = B.SUBLINENUMBER
+    					      AND X.EVENTTYPEID    = B.EVENTTYPEID
+    					);
+    					
+    	CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_FINAL_PAGOS_BASES_1_MAC38P03_RT: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+    	
+    	--LIQUIDACIÓN COMPLEMENTARIA
+		IF v_num_post > 1 AND i_tipo_reparto = 'CIERRE' THEN
+		
+			TEMP_PAGOS_DIRECTOS_1_MAC38P03_RT_LC = SELECT SUM(IMPORTE) SUMA_PAGOS,PERIODSEQ,POS_PRIN,EARNINGGROUPID,EARNINGCODEID,DEPOSITO 
+				FROM :TEMP_FINAL_PAGOS_BASES_1_MAC38P03_RT
+				WHERE TIPO_LIQ IN ('CIERRE','LIQ')
+				GROUP BY PERIODSEQ,POS_PRIN,EARNINGGROUPID,EARNINGCODEID,DEPOSITO;
+		
+			INSERT INTO EXT.FINAL_REPEXT_FILE_TEST("TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+		        ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+		        ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+		        ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ")
+		    SELECT "TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+		        ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE"*(-1),"TIPO_AGENTE","TIPO_DOCUMENTO",TF."EARNINGGROUPID"
+		        ,TF."EARNINGCODEID",TF.SUMA_IMPORTE,"DEPOSITSEQ",TF."DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+		        ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF",TF."POS_PRIN","POSITIONNAME","PERIODO",TF."PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ"
+		    FROM :TEMP_FINAL_PAGOS_BASES_1_MAC38P03_RT TF 
+		    	INNER JOIN :TEMP_PAGOS_DIRECTOS_1_MAC38P03_RT_LC TLC ON TF.PERIODSEQ = TLC.PERIODSEQ AND TF.POS_PRIN = TLC.POS_PRIN 
+		    	AND TF.EARNINGGROUPID = TLC.EARNINGGROUPID AND TF.EARNINGCODEID = TLC. EARNINGCODEID AND TF.DEPOSITO = TLC.DEPOSITO
+		    	AND 1 = (CASE WHEN SUMA_PAGOS <> SUMA_IMPORTE THEN 1 END); 
+		 END IF;
+    	-- FIN LIQUIDACIÓN COMPLEMENTARIA
+    	
+    	UPDATE F
+    	SET ESTADO_REPARTO = CASE 
+    		WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 2
+			WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 3
+			ELSE 4 
+		END
+		FROM EXT.FINAL_REPEXT_PAGOS_FILE_TEST F
+		INNER JOIN :TEMP_FINAL_PAGOS_BASES_1_MAC38P03_RT T ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+		AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID;
+		
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_PAGOS_FILE_TEST ESTADOS ACTUALIZADOS: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+		
+		UPDATE F
+            SET ESTADO_REPARTO = CASE 
+    				WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 2
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 3
+					ELSE 4 
+				END --REPARTO CORRECTO
+			FROM :TEMP_REPEXT_PAGOS_REPARTO_FILE F
+			INNER JOIN :TEMP_FINAL_PAGOS_BASES_1_MAC38P03_RT T ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+			AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+	--		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID
+			WHERE 1 = (CASE 
+    				WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 1
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+					ELSE 0 
+				END)
+			;
+        CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_REPEXT_PAGOS_REPARTO_FILE ESTADOS ACTUALIZADOS: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');   
+		
+		INSERT INTO EXT.FINAL_REPEXT_FILE_TEST("TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+            ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+            ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+            ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ")
+        SELECT "TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+            ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+            ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+            ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ"
+        FROM :TEMP_FINAL_PAGOS_BASES_1_MAC38P03_RT
+        WHERE 1 = (
+        	CASE 
+        		WHEN (IMPORTE_PAGO - IFNULL(SUMA_IMPORTE,0)) = 0 THEN 1
+    			WHEN (IMPORTE_PAGO - IFNULL(SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+    		ELSE 0 
+    		END);
+		
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_FILE_TEST INSERTADOS: ' ||::ROWCOUNT, v_log_count, v_idproceso, 'info');	
+		---------------------------------------------------------------------------------------------------
+		
+		TEMP_FINAL_PAGOS_BASES_1_MAC38P03_RT_DIF =
+			SELECT T.PERIODSEQ,T.POS_PRIN,T.TIPO_DOCUMENTO,T.DEPOSITSEQ,T.EARNINGCODEID,T.EARNINGGROUPID,T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0) AS DIF,
+				T.ORDERID,T.LINENUMBER,T.SUBLINENUMBER,T.EVENTTYPEID, T.COMPENSATIONDATE,
+				ROW_NUMBER() OVER(
+                      		PARTITION BY T.PERIODSEQ,T.POS_PRIN,T.TIPO_DOCUMENTO,T.DEPOSITSEQ,T.EARNINGCODEID,T.EARNINGGROUPID
+                      		--ORDER BY T.ORDERID
+                      ) AS RN_TRX
+			FROM :TEMP_FINAL_PAGOS_BASES_1_MAC38P03_RT T
+			WHERE 1 = (CASE 
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 0
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+					ELSE 0 
+				END)
+		;
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_FINAL_PAGOS_BASES_1_MAC38P03_RT_DIF: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+		UPDATE F
+    	SET F.IMPORTE = F.IMPORTE + T.DIF
+    	FROM EXT.FINAL_REPEXT_FILE_TEST F
+    	INNER JOIN :TEMP_FINAL_PAGOS_BASES_1_MAC38P03_RT_DIF T  ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+		AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID
+		AND F.ORDERID = T.ORDERID AND F.LINENUMBER = T.LINENUMBER AND F.SUBLINENUMBER = T.SUBLINENUMBER AND F.EVENTTYPEID = T.EVENTTYPEID AND F.COMPENSATIONDATE = T.COMPENSATIONDATE
+		AND T.RN_TRX = 1
+		;
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_FILE_TEST IMPORTE_DIF: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+
+			
+	
+		---------------------------------------------------------------------------------------------------
+		-- 1_MAC38P03_RG	
+		---------------------------------------------------------------------------------------------------
+		--PAGOS
+		TEMP_PAGOS_DIRECTOS_1_MAC38P03_RG = SELECT *
+    		FROM :TEMP_PAGOS_DIRECTOS
+    		WHERE SUBSTRING(EARNINGCODEID,1,1) = '1'
+    			AND (PROGRAMA = 'MACB38P' OR DEPOSITO LIKE 'D-%-Pagos-Fijos');
+    		
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_PAGOS_DIRECTOS_1_MAC38P03_RG: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+		--BASES
+		IF i_tipo_reparto = 'CIERRE' THEN
+			TEMP_BASES_1_MAC38P03_RG = SELECT * 
+	    		FROM EXT.FINAL_BASES_REPARTO_POLIZA_FILE B
+	    		WHERE PERIODSEQ = i_periodSeq
+	    		-- EARNINGGROUPID = '03-RG'
+	    		-- AND PRODUCTID LIKE '03%' AND PRODUCTID NOT LIKE '032%'
+	    		-- EARNINGCODEID = '15'
+	    		AND EVENTTYPEID = 'Pago Comercial';
+	    		
+	    	CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_BASES_1_MAC38P03_RG: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+	    ELSE
+	    	TEMP_BASES_1_MAC38P03_RG = SELECT * 
+    		FROM EXT.FINAL_BASES_REPARTO_POLIZA_FILE_NUEVA_BASE_REPARTO B
+    		WHERE PERIODSEQ = v_periodSeqAnterior
+    		-- EARNINGGROUPID = '03-RG'
+    		-- AND PRODUCTID LIKE '03%' AND PRODUCTID NOT LIKE '032%'
+    		-- EARNINGCODEID = '15'
+    		AND EVENTTYPEID = 'Pago Comercial';
+    		
+    	CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_BASES_1_MAC38P03_RG (BALANCE): ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+    	END IF;
+    	
+    	
+   -- 	--BASES_TOTAL_IMPORTE
+   -- 	BASES_TOTAL_IMPORTE_1_MAC38P03_RG = 
+			-- SELECT POSITIONSEQ, SUM(IMPORTE_COMISION) AS SUMA_IMPORTE
+			-- FROM :TEMP_BASES_1_MAC38P03_RG
+			-- WHERE IMPORTE_COMISION <> 0
+			-- GROUP BY POSITIONSEQ;
+			
+			
+    	--FINAL
+    	TEMP_FINAL_PAGOS_BASES_1_MAC38P03_RG = SELECT P.PARTICIPANTSEQ,
+                                P.POSITIONSEQ,
+                                P.PERIODSEQ,
+                                :v_periodName AS PERIODO,
+                                P.POS_CALLIDUS POSITIONNAME,
+                                P.POS_PRIN,
+                                P.NIF,
+                                P.MANAGER_POS_PRIN,
+                                ORDERID,
+                                LINENUMBER,
+                                SUBLINENUMBER,
+                                EVENTTYPEID,
+                                PRODUCTID,
+                                CODIGO_POLIZA,
+                                COMPENSATIONDATE,
+                                ESTADO,
+                                P.PROGRAMA,
+                                P.TIPO_PAGO,
+                                P.DEPOSITO,
+                                P.DEPOSITSEQ,
+                                P.IMPORTE IMPORTE_PAGO,
+                                P.EARNINGCODEID,
+                                P.EARNINGGROUPID,
+                                P.TIPO_DOCUMENTO,
+                                P.TIPO_AGENTE,
+                                B.IMPORTE_COMISION AS IMPORTE,
+                                (SELECT SUM(IMPORTE_COMISION)
+                                	FROM :TEMP_BASES_1_MAC38P03_RG S
+                                	WHERE S.POSITIONSEQ = B.POSITIONSEQ
+                                	AND S.PRODUCTID LIKE '%'||RIGHT(P.EARNINGCODEID,5)
+                                ) AS SUMA_IMPORTE,
+                                NULL AS TIPO_REPARTO,
+                                0 AS NUM_TRAMO,
+                                NULL AS REPARTO_TIPO_BASE,
+                                NULL AS REPARTO_PORCENTAJE,
+                                POLIZA_FISICA,
+                                POLIZA_CORREGIDA,
+                                PRIMA_CORREGIDA,
+                                PRIMA_NETA,
+                                PRIMA_NETA_ANUAL,
+                                PRIMA_COMIS_S4 PRIMA_COMIS,
+                                NULL AS COEF_TIPO_BASE,
+                                NULL AS COEF_CORRECTOR,
+                                COD_AGENTE,
+                                P.TIPO_LIQ
+    					FROM :TEMP_PAGOS_DIRECTOS_1_MAC38P03_RG P
+    					INNER JOIN :TEMP_BASES_1_MAC38P03_RG B ON P.POSITIONSEQ = B.POSITIONSEQ
+    					--INNER JOIN :BASES_TOTAL_IMPORTE_1_MAC38P03_RG BT ON BT.POSITIONSEQ = B.POSITIONSEQ
+    					WHERE 
+    					-- TIPO CONCEPTO: IMPORTE_COMISION
+    					B.IMPORTE_COMISION <> 0
+    					AND PRODUCTID LIKE '%' || RIGHT(P.EARNINGCODEID,5) 
+						AND CODIGO_POLIZA = P.EARNINGGROUPID AND ESTADO = SUBSTR(P.EARNINGCODEID,1,3)
+    					AND NOT EXISTS (
+    					    SELECT 1 
+    					    FROM EXT.FINAL_REPEXT_FILE_TEST X 
+    					    WHERE X.POS_PRIN       = P.POS_PRIN
+    					      AND X.PERIODSEQ      = P.PERIODSEQ
+    					      AND X.EARNINGCODEID  = P.EARNINGCODEID
+    					      AND X.EARNINGGROUPID = P.EARNINGGROUPID
+    					      AND X.TIPO_DOCUMENTO = P.TIPO_DOCUMENTO
+    					      AND X.ORDERID        = B.ORDERID
+    					      AND X.LINENUMBER     = B.LINENUMBER
+    					      AND X.SUBLINENUMBER  = B.SUBLINENUMBER
+    					      AND X.EVENTTYPEID    = B.EVENTTYPEID
+    					);
+    					
+    	CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_FINAL_PAGOS_BASES_1_MAC38P03_RG: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+    	
+    	--LIQUIDACIÓN COMPLEMENTARIA
+		IF v_num_post > 1 AND i_tipo_reparto = 'CIERRE' THEN
+		
+			TEMP_PAGOS_DIRECTOS_1_MAC38P03_RG_LC = SELECT SUM(IMPORTE) SUMA_PAGOS,PERIODSEQ,POS_PRIN,EARNINGGROUPID,EARNINGCODEID,DEPOSITO 
+				FROM :TEMP_FINAL_PAGOS_BASES_1_MAC38P03_RG
+				WHERE TIPO_LIQ IN ('CIERRE','LIQ')
+				GROUP BY PERIODSEQ,POS_PRIN,EARNINGGROUPID,EARNINGCODEID,DEPOSITO;
+		
+			INSERT INTO EXT.FINAL_REPEXT_FILE_TEST("TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+		        ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+		        ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+		        ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ")
+		    SELECT "TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+		        ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE"*(-1),"TIPO_AGENTE","TIPO_DOCUMENTO",TF."EARNINGGROUPID"
+		        ,TF."EARNINGCODEID",TF.SUMA_IMPORTE,"DEPOSITSEQ",TF."DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+		        ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF",TF."POS_PRIN","POSITIONNAME","PERIODO",TF."PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ"
+		    FROM :TEMP_FINAL_PAGOS_BASES_1_MAC38P03_RG TF 
+		    	INNER JOIN :TEMP_PAGOS_DIRECTOS_1_MAC38P03_RG_LC TLC ON TF.PERIODSEQ = TLC.PERIODSEQ AND TF.POS_PRIN = TLC.POS_PRIN 
+		    	AND TF.EARNINGGROUPID = TLC.EARNINGGROUPID AND TF.EARNINGCODEID = TLC. EARNINGCODEID AND TF.DEPOSITO = TLC.DEPOSITO
+		    	AND 1 = (CASE WHEN SUMA_PAGOS <> SUMA_IMPORTE THEN 1 END); 
+		 END IF;
+    	-- FIN LIQUIDACIÓN COMPLEMENTARIA
+    	
+    	UPDATE F
+    	SET ESTADO_REPARTO = CASE 
+    		WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 2
+			WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 3
+			ELSE 4 
+		END
+		FROM EXT.FINAL_REPEXT_PAGOS_FILE_TEST F
+		INNER JOIN :TEMP_FINAL_PAGOS_BASES_1_MAC38P03_RG T ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+		AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID;
+		
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_PAGOS_FILE_TEST ESTADOS ACTUALIZADOS: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+		
+		UPDATE F
+            SET ESTADO_REPARTO = CASE 
+    				WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 2
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 3
+					ELSE 4 
+				END --REPARTO CORRECTO
+			FROM :TEMP_REPEXT_PAGOS_REPARTO_FILE F
+			INNER JOIN :TEMP_FINAL_PAGOS_BASES_1_MAC38P03_RG T ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+			AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+	--		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID
+			WHERE 1 = (CASE 
+    				WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 1
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+					ELSE 0 
+				END)
+			;
+        CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_REPEXT_PAGOS_REPARTO_FILE ESTADOS ACTUALIZADOS: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');   
+	
+		INSERT INTO EXT.FINAL_REPEXT_FILE_TEST("TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+            ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+            ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+            ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ")
+        SELECT "TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+            ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+            ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+            ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ"
+        FROM :TEMP_FINAL_PAGOS_BASES_1_MAC38P03_RG
+        WHERE 1 = (
+        	CASE 
+        		WHEN (IMPORTE_PAGO - IFNULL(SUMA_IMPORTE,0)) = 0 THEN 1
+    			WHEN (IMPORTE_PAGO - IFNULL(SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+    		ELSE 0 
+    		END);
+        -- SELECT ESTADO_REPARTO,COUNT(*) FROM :TEMP_REPEXT_PAGOS_REPARTO_FILE GROUP BY ESTADO_REPARTO;
+        
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_FILE_TEST INSERTADOS: ' ||::ROWCOUNT, v_log_count, v_idproceso, 'info');	
+------------------------------------------------------------------------------------------------------		
+		
+		TEMP_FINAL_PAGOS_BASES_1_MAC38P03_RG_DIF =
+			SELECT T.PERIODSEQ,T.POS_PRIN,T.TIPO_DOCUMENTO,T.DEPOSITSEQ,T.EARNINGCODEID,T.EARNINGGROUPID,T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0) AS DIF,
+				T.ORDERID,T.LINENUMBER,T.SUBLINENUMBER,T.EVENTTYPEID, T.COMPENSATIONDATE,
+				ROW_NUMBER() OVER(
+                      		PARTITION BY T.PERIODSEQ,T.POS_PRIN,T.TIPO_DOCUMENTO,T.DEPOSITSEQ,T.EARNINGCODEID,T.EARNINGGROUPID
+                      		--ORDER BY T.ORDERID
+                      ) AS RN_TRX
+			FROM :TEMP_FINAL_PAGOS_BASES_1_MAC38P03_RG T
+			WHERE 1 = (CASE 
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 0
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+					ELSE 0 
+				END)
+		;
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_FINAL_PAGOS_BASES_1_MAC38P03_RG_DIF: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+		UPDATE F
+    	SET F.IMPORTE = F.IMPORTE + T.DIF
+    	FROM EXT.FINAL_REPEXT_FILE_TEST F
+    	INNER JOIN :TEMP_FINAL_PAGOS_BASES_1_MAC38P03_RG_DIF T  ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+		AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID
+		AND F.ORDERID = T.ORDERID AND F.LINENUMBER = T.LINENUMBER AND F.SUBLINENUMBER = T.SUBLINENUMBER AND F.EVENTTYPEID = T.EVENTTYPEID AND F.COMPENSATIONDATE = T.COMPENSATIONDATE
+		AND T.RN_TRX = 1
+		;
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_FILE_TEST IMPORTE_DIF: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+
+			
+		
+    -------------------------------------------------------------------------------------------    
+    -- SUBSTRING(CODEID,1,1) = 2
+    -------------------------------------------------------------------------------------------
+        -- PAGOS GROUPID: 03-RT
+    TEMP_PAGOS_DIRECTOS_03_RT = SELECT *
+    		FROM :TEMP_PAGOS_DIRECTOS
+    		WHERE SUBSTRING(EARNINGGROUPID,7,5) = '03-RT'
+    		AND SUBSTRING(EARNINGCODEID,1,1) = '2';
+    		
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_PAGOS_DIRECTOS_03_RT: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+		--SELECT 'TEMP_PAGOS_DIRECTOS_03_RT',* FROM :TEMP_PAGOS_DIRECTOS_03_RT;
+    
+    -- PAGOS GROUPID: 03-RG
+    TEMP_PAGOS_DIRECTOS_03_RG = SELECT *
+    		FROM :TEMP_PAGOS_DIRECTOS
+    		WHERE SUBSTRING(EARNINGGROUPID,7,5) = '03-RG'
+    		AND SUBSTRING(EARNINGCODEID,1,1) = '2';
+    		
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_PAGOS_DIRECTOS_03_RG: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+		--SELECT 'TEMP_PAGOS_DIRECTOS_03_RG',* FROM :TEMP_PAGOS_DIRECTOS_03_RG;
+		
+	-- PAGOS GROUPID: NOT 03-RT
+    TEMP_PAGOS_DIRECTOS_RT = SELECT *
+    		FROM :TEMP_PAGOS_DIRECTOS
+    		WHERE SUBSTRING(EARNINGGROUPID,7,2) != '03' 
+    		AND SUBSTRING(EARNINGGROUPID,10,2) = 'RT'
+    		AND SUBSTRING(EARNINGCODEID,1,1) = '2';
+    		
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_PAGOS_DIRECTOS_RT: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+		--SELECT 'TEMP_PAGOS_DIRECTOS_RT',* FROM :TEMP_PAGOS_DIRECTOS_RT;
+    
+    -- PAGOS GROUPID: NOT 03-RG
+    TEMP_PAGOS_DIRECTOS_RG = SELECT *
+    		FROM :TEMP_PAGOS_DIRECTOS
+    		WHERE SUBSTRING(EARNINGGROUPID,7,2) != '03'
+    		AND SUBSTRING(EARNINGGROUPID,10,2) = 'RG'
+    		AND SUBSTRING(EARNINGCODEID,1,1) = '2';
+    		
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_PAGOS_DIRECTOS_RG: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+		--SELECT 'TEMP_PAGOS_DIRECTOS_RG',* FROM :TEMP_PAGOS_DIRECTOS_RG;	
+		
+		
+		---------------------------------------------------------------------------------------------------
+		-- 2_82_03_RT_MACB38P
+		---------------------------------------------------------------------------------------------------
+		
+		--BASES
+		IF i_tipo_reparto = 'CIERRE' THEN
+			TEMP_BASES_2_82_03_RT_MACB38P = SELECT * 
+	    		FROM EXT.FINAL_BASES_REPARTO_POLIZA_FILE B
+	    		WHERE PERIODSEQ = i_periodSeq
+	    		--RAMO EARNINGGROUPID = '03-RT'
+	    		--AND PRODUCTID LIKE '032%'
+	    		ORDER BY POSITIONSEQ;
+	    		
+	    	CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_BASES_2_82_03_RT_MACB38P: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+	    ELSE
+	    	TEMP_BASES_2_82_03_RT_MACB38P = SELECT * 
+	    		FROM EXT.FINAL_BASES_REPARTO_POLIZA_FILE_NUEVA_BASE_REPARTO B
+	    		WHERE PERIODSEQ = v_periodSeqAnterior
+	    		--RAMO EARNINGGROUPID = '03-RT'
+	    		--AND PRODUCTID LIKE '032%'
+	    		ORDER BY POSITIONSEQ;
+	    		
+	    	CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_BASES_2_82_03_RT_MACB38P (BALANCE): ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+	    END IF;
+			
+		
+		-- --BASES_TOTAL_IMPORTE
+  --  	BASES_TOTAL_IMPORTE_2_82_03_RT_MACB38P = 
+		-- 	SELECT POSITIONSEQ, SUM(IMPORTE_COMISION) AS SUMA_IMPORTE
+		-- 	FROM :TEMP_BASES_2_82_03_RT_MACB38P
+		-- 	WHERE IMPORTE_COMISION <> 0
+		-- 	GROUP BY POSITIONSEQ;	
+			
+			
+		--FINAL
+    	TEMP_FINAL_PAGOS_BASES_2_82_03_RT_MACB38P = SELECT P.PARTICIPANTSEQ,
+                                P.POSITIONSEQ,
+                                P.PERIODSEQ,
+                                :v_periodName AS PERIODO,
+                                P.POS_CALLIDUS POSITIONNAME,
+                                P.POS_PRIN,
+                                P.NIF,
+                                P.MANAGER_POS_PRIN,
+                                ORDERID,
+                                LINENUMBER,
+                                SUBLINENUMBER,
+                                EVENTTYPEID,
+                                PRODUCTID,
+                                CODIGO_POLIZA,
+                                COMPENSATIONDATE,
+                                ESTADO,
+                                P.PROGRAMA,
+                                P.TIPO_PAGO,
+                                P.DEPOSITO,
+                                P.DEPOSITSEQ,
+                                P.IMPORTE IMPORTE_PAGO,
+                                P.EARNINGCODEID,
+                                P.EARNINGGROUPID,
+                                P.TIPO_DOCUMENTO,
+                                P.TIPO_AGENTE,
+                                B.IMPORTE_COMISION AS IMPORTE,
+                                (SELECT SUM(IMPORTE_COMISION)
+                                	FROM :TEMP_BASES_2_82_03_RT_MACB38P S
+                                	WHERE S.POSITIONSEQ = B.POSITIONSEQ
+                                	AND S.PRODUCTID LIKE '%'||RIGHT(P.EARNINGCODEID,5)
+									AND S.EVENTTYPEID = 'Pago Comercial'
+                                ) AS SUMA_IMPORTE,
+                                NULL AS TIPO_REPARTO,
+                                0 AS NUM_TRAMO,
+                                NULL AS REPARTO_TIPO_BASE,
+                                NULL AS REPARTO_PORCENTAJE,
+                                POLIZA_FISICA,
+                                POLIZA_CORREGIDA,
+                                PRIMA_CORREGIDA,
+                                PRIMA_NETA,
+                                PRIMA_NETA_ANUAL,
+                                PRIMA_COMIS_S4 PRIMA_COMIS,
+                                NULL AS COEF_TIPO_BASE,
+                                NULL AS COEF_CORRECTOR,
+                                COD_AGENTE,
+                                P.TIPO_LIQ
+    					FROM :TEMP_PAGOS_DIRECTOS_03_RT P
+    					INNER JOIN :TEMP_BASES_2_82_03_RT_MACB38P B ON P.POSITIONSEQ = B.POSITIONSEQ
+    					--INNER JOIN :BASES_TOTAL_IMPORTE_2_82_03_RT_MACB38P BT ON BT.POSITIONSEQ = B.POSITIONSEQ
+    					--POSITION
+    					WHERE (B.POS_PRIN = P.POS_PRIN OR B.MANAGER_POS_PRIN = P.POS_PRIN OR B.MAN_ACT_POS_PRIN = P.POS_PRIN) 
+    					--TIPO AGENTE
+                        AND P.TIPO_AGENTE = '82'                        
+                        --RAMO
+    					AND B.PRODUCTID LIKE '%'||RIGHT(P.EARNINGCODEID,5)
+    					--PERMANENCIA
+    					AND B.EVENTTYPEID = 'Pago Comercial' AND B.CODIGO_POLIZA = P.EARNINGGROUPID AND ESTADO = SUBSTRING(P.EARNINGCODEID,1,3)
+    					--TIPO CONCEPTO
+    					AND B.IMPORTE_COMISION <> 0
+    					AND NOT EXISTS (
+    					    SELECT 1 
+    					    FROM EXT.FINAL_REPEXT_FILE_TEST X 
+    					    WHERE X.POS_PRIN       = P.POS_PRIN
+    					      AND X.PERIODSEQ      = P.PERIODSEQ
+    					      AND X.EARNINGCODEID  = P.EARNINGCODEID
+    					      AND X.EARNINGGROUPID = P.EARNINGGROUPID
+    					      AND X.TIPO_DOCUMENTO = P.TIPO_DOCUMENTO
+    					      AND X.ORDERID        = B.ORDERID
+    					      AND X.LINENUMBER     = B.LINENUMBER
+    					      AND X.SUBLINENUMBER  = B.SUBLINENUMBER
+    					      AND X.EVENTTYPEID    = B.EVENTTYPEID
+    					);
+    					
+    	CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_FINAL_PAGOS_BASES_2_82_03_RT_MACB38P: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');	
+    	
+    	--SELECT 'TEMP_FINAL_PAGOS_BASES_2_82_03_RT_MACB38P',* FROM :TEMP_FINAL_PAGOS_BASES_2_82_03_RT_MACB38P;
+    	
+    	--LIQUIDACIÓN COMPLEMENTARIA
+		IF v_num_post > 1 AND i_tipo_reparto = 'CIERRE' THEN
+		
+			TEMP_PAGOS_DIRECTOS_2_82_03_RT_MACB38P_LC = SELECT SUM(IMPORTE) SUMA_PAGOS,PERIODSEQ,POS_PRIN,EARNINGGROUPID,EARNINGCODEID,DEPOSITO 
+				FROM :TEMP_FINAL_PAGOS_BASES_2_82_03_RT_MACB38P
+				WHERE TIPO_LIQ IN ('CIERRE','LIQ')
+				GROUP BY PERIODSEQ,POS_PRIN,EARNINGGROUPID,EARNINGCODEID,DEPOSITO;
+		
+			INSERT INTO EXT.FINAL_REPEXT_FILE_TEST("TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+		        ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+		        ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+		        ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ")
+		    SELECT "TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+		        ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE"*(-1),"TIPO_AGENTE","TIPO_DOCUMENTO",TF."EARNINGGROUPID"
+		        ,TF."EARNINGCODEID",TF.SUMA_IMPORTE,"DEPOSITSEQ",TF."DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+		        ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF",TF."POS_PRIN","POSITIONNAME","PERIODO",TF."PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ"
+		    FROM :TEMP_FINAL_PAGOS_BASES_2_82_03_RT_MACB38P TF 
+		    	INNER JOIN :TEMP_PAGOS_DIRECTOS_2_82_03_RT_MACB38P_LC TLC ON TF.PERIODSEQ = TLC.PERIODSEQ AND TF.POS_PRIN = TLC.POS_PRIN 
+		    	AND TF.EARNINGGROUPID = TLC.EARNINGGROUPID AND TF.EARNINGCODEID = TLC. EARNINGCODEID AND TF.DEPOSITO = TLC.DEPOSITO
+		    	AND 1 = (CASE WHEN SUMA_PAGOS <> SUMA_IMPORTE THEN 1 END); 
+		 END IF;
+    	-- FIN LIQUIDACIÓN COMPLEMENTARIA
+    	
+    	UPDATE F
+    	SET ESTADO_REPARTO = CASE 
+    		WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 2
+			WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 3
+			ELSE 4 
+		END
+		FROM EXT.FINAL_REPEXT_PAGOS_FILE_TEST F
+		INNER JOIN :TEMP_FINAL_PAGOS_BASES_2_82_03_RT_MACB38P T ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+		AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID;
+		
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_PAGOS_FILE_TEST ESTADOS ACTUALIZADOS: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+		
+		UPDATE F
+            SET ESTADO_REPARTO = CASE 
+    				WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 2
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 3
+					ELSE 4 
+				END --REPARTO CORRECTO
+			FROM :TEMP_REPEXT_PAGOS_REPARTO_FILE F
+			INNER JOIN :TEMP_FINAL_PAGOS_BASES_2_82_03_RT_MACB38P T ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+			AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+			WHERE 1 = (CASE 
+    				WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 1
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+					ELSE 0 
+				END)
+	--		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID
+			;
+        CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_REPEXT_PAGOS_REPARTO_FILE ESTADOS ACTUALIZADOS: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');   
+                                   
+		
+		INSERT INTO EXT.FINAL_REPEXT_FILE_TEST("TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+            ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+            ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+            ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ")
+        SELECT "TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+            ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+            ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+            ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ"
+        FROM :TEMP_FINAL_PAGOS_BASES_2_82_03_RT_MACB38P
+        WHERE 1 = (
+        	CASE 
+        		WHEN (IMPORTE_PAGO - IFNULL(SUMA_IMPORTE,0)) = 0 THEN 1
+    			WHEN (IMPORTE_PAGO - IFNULL(SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+    		ELSE 0 
+    		END);
+
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_FILE_TEST INSERTADOS: ' ||::ROWCOUNT, v_log_count, v_idproceso, 'info');	
+		---------------------------------------------------------------------------------------------------
+		
+		TEMP_FINAL_PAGOS_BASES_2_82_03_RT_MACB38P_DIF =
+			SELECT T.PERIODSEQ,T.POS_PRIN,T.TIPO_DOCUMENTO,T.DEPOSITSEQ,T.EARNINGCODEID,T.EARNINGGROUPID,T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0) AS DIF,
+				T.ORDERID,T.LINENUMBER,T.SUBLINENUMBER,T.EVENTTYPEID, T.COMPENSATIONDATE,
+				ROW_NUMBER() OVER(
+                      		PARTITION BY T.PERIODSEQ,T.POS_PRIN,T.TIPO_DOCUMENTO,T.DEPOSITSEQ,T.EARNINGCODEID,T.EARNINGGROUPID
+                      		--ORDER BY T.ORDERID
+                      ) AS RN_TRX
+			FROM :TEMP_FINAL_PAGOS_BASES_2_82_03_RT_MACB38P T
+			WHERE 1 = (CASE 
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 0
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+					ELSE 0 
+				END)
+		;
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_FINAL_PAGOS_BASES_2_82_03_RT_MACB38P_DIF: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+		UPDATE F
+    	SET F.IMPORTE = F.IMPORTE + T.DIF
+    	FROM EXT.FINAL_REPEXT_FILE_TEST F
+    	INNER JOIN :TEMP_FINAL_PAGOS_BASES_2_82_03_RT_MACB38P_DIF T  ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+		AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID
+		AND F.ORDERID = T.ORDERID AND F.LINENUMBER = T.LINENUMBER AND F.SUBLINENUMBER = T.SUBLINENUMBER AND F.EVENTTYPEID = T.EVENTTYPEID AND F.COMPENSATIONDATE = T.COMPENSATIONDATE
+		AND T.RN_TRX = 1
+		;
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_FILE_TEST IMPORTE_DIF: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+
+	
+		
+		
+		---------------------------------------------------------------------------------------------------
+		-- 2_82_03_RG_MACB38P
+		---------------------------------------------------------------------------------------------------
+		--BASES
+		IF i_tipo_reparto = 'CIERRE' THEN
+			TEMP_BASES_2_82_03_RG_MACB38P = SELECT * 
+	    		FROM EXT.FINAL_BASES_REPARTO_POLIZA_FILE B
+	    		WHERE PERIODSEQ = i_periodSeq
+	    		--RAMO EARNINGGROUPID = '03-RT'
+	    		--AND PRODUCTID LIKE '032%'
+	    		;
+	    		
+	    	CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_BASES_2_82_03_RG_MACB38P: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+	    ELSE
+	    	TEMP_BASES_2_82_03_RG_MACB38P = SELECT * 
+    		FROM EXT.FINAL_BASES_REPARTO_POLIZA_FILE_NUEVA_BASE_REPARTO B
+    		WHERE PERIODSEQ = v_periodSeqAnterior
+    		--RAMO EARNINGGROUPID = '03-RT'
+    		--AND PRODUCTID LIKE '032%'
+    		;
+    		
+    		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_BASES_2_82_03_RG_MACB38P (BALANCE): ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+    	END IF;
+		
+		-- --BASES_TOTAL_IMPORTE
+  --  	BASES_TOTAL_IMPORTE_2_82_03_RG_MACB38P = 
+		-- 	SELECT POSITIONSEQ, SUM(IMPORTE_COMISION) AS SUMA_IMPORTE
+		-- 	FROM :TEMP_BASES_2_82_03_RG_MACB38P
+		-- 	WHERE IMPORTE_COMISION <> 0
+		-- 	GROUP BY POSITIONSEQ;	
+			
+		--FINAL
+    	TEMP_FINAL_PAGOS_BASES_2_82_03_RG_MACB38P = SELECT P.PARTICIPANTSEQ,
+                                P.POSITIONSEQ,
+                                P.PERIODSEQ,
+                                :v_periodName AS PERIODO,
+                                P.POS_CALLIDUS POSITIONNAME,
+                                P.POS_PRIN,
+                                P.NIF,
+                                P.MANAGER_POS_PRIN,
+                                ORDERID,
+                                LINENUMBER,
+                                SUBLINENUMBER,
+                                EVENTTYPEID,
+                                PRODUCTID,
+                                CODIGO_POLIZA,
+                                COMPENSATIONDATE,
+                                ESTADO,
+                                P.PROGRAMA,
+                                P.TIPO_PAGO,
+                                P.DEPOSITO,
+                                P.DEPOSITSEQ,
+                                P.IMPORTE IMPORTE_PAGO,
+                                P.EARNINGCODEID,
+                                P.EARNINGGROUPID,
+                                P.TIPO_DOCUMENTO,
+                                P.TIPO_AGENTE,
+                                B.IMPORTE_COMISION AS IMPORTE,
+                                (SELECT SUM(IMPORTE_COMISION)
+                                	FROM :TEMP_BASES_2_82_03_RG_MACB38P S
+                                	WHERE S.POSITIONSEQ = B.POSITIONSEQ
+                                	AND S.PRODUCTID LIKE '%'||RIGHT(P.EARNINGCODEID,5)
+									AND S.EVENTTYPEID = 'Pago Comercial'
+                                ) AS SUMA_IMPORTE,
+                                NULL AS TIPO_REPARTO,
+                                0 AS NUM_TRAMO,
+                                NULL AS REPARTO_TIPO_BASE,
+                                NULL AS REPARTO_PORCENTAJE,
+                                POLIZA_FISICA,
+                                POLIZA_CORREGIDA,
+                                PRIMA_CORREGIDA,
+                                PRIMA_NETA,
+                                PRIMA_NETA_ANUAL,
+                                PRIMA_COMIS_S4 PRIMA_COMIS,
+                                NULL AS COEF_TIPO_BASE,
+                                NULL AS COEF_CORRECTOR,
+                                COD_AGENTE,
+                                P.TIPO_LIQ
+    					FROM :TEMP_PAGOS_DIRECTOS_03_RG P
+    					INNER JOIN :TEMP_BASES_2_82_03_RG_MACB38P B ON P.POSITIONSEQ = B.POSITIONSEQ
+    					--INNER JOIN :BASES_TOTAL_IMPORTE_2_82_03_RG_MACB38P BT ON BT.POSITIONSEQ = B.POSITIONSEQ
+    					WHERE (B.POS_PRIN = P.POS_PRIN OR B.MANAGER_POS_PRIN = P.POS_PRIN OR B.MAN_ACT_POS_PRIN = P.POS_PRIN) 
+    					--TIPO AGENTE
+                        AND P.TIPO_AGENTE = '82'
+                        --RAMO
+    					AND B.PRODUCTID LIKE '%'||RIGHT(P.EARNINGCODEID,5)
+    					--PERMANENCIA
+    					AND B.EVENTTYPEID = 'Pago Comercial' AND B.CODIGO_POLIZA = P.EARNINGGROUPID AND ESTADO = SUBSTRING(P.EARNINGCODEID,1,3)
+    					--TIPO CONCEPTO
+    					AND B.IMPORTE_COMISION <> 0
+    					AND NOT EXISTS (
+    					    SELECT 1 
+    					    FROM EXT.FINAL_REPEXT_FILE_TEST X 
+    					    WHERE X.POS_PRIN       = P.POS_PRIN
+    					      AND X.PERIODSEQ      = P.PERIODSEQ
+    					      AND X.EARNINGCODEID  = P.EARNINGCODEID
+    					      AND X.EARNINGGROUPID = P.EARNINGGROUPID
+    					      AND X.TIPO_DOCUMENTO = P.TIPO_DOCUMENTO
+    					      AND X.ORDERID        = B.ORDERID
+    					      AND X.LINENUMBER     = B.LINENUMBER
+    					      AND X.SUBLINENUMBER  = B.SUBLINENUMBER
+    					      AND X.EVENTTYPEID    = B.EVENTTYPEID
+    					);
+    					
+    	CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_FINAL_PAGOS_BASES_2_82_03_RG_MACB38P: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');	
+    	
+    
+    	
+    	--LIQUIDACIÓN COMPLEMENTARIA
+		IF v_num_post > 1 AND i_tipo_reparto = 'CIERRE' THEN
+		
+			TEMP_PAGOS_DIRECTOS_2_82_03_RG_MACB38P_LC = SELECT SUM(IMPORTE) SUMA_PAGOS,PERIODSEQ,POS_PRIN,EARNINGGROUPID,EARNINGCODEID,DEPOSITO 
+				FROM :TEMP_FINAL_PAGOS_BASES_2_82_03_RG_MACB38P
+				WHERE TIPO_LIQ IN ('CIERRE','LIQ')
+				GROUP BY PERIODSEQ,POS_PRIN,EARNINGGROUPID,EARNINGCODEID,DEPOSITO;
+		
+			INSERT INTO EXT.FINAL_REPEXT_FILE_TEST("TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+		        ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+		        ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+		        ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ")
+		    SELECT "TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+		        ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE"*(-1),"TIPO_AGENTE","TIPO_DOCUMENTO",TF."EARNINGGROUPID"
+		        ,TF."EARNINGCODEID",TF.SUMA_IMPORTE,"DEPOSITSEQ",TF."DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+		        ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF",TF."POS_PRIN","POSITIONNAME","PERIODO",TF."PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ"
+		    FROM :TEMP_FINAL_PAGOS_BASES_2_82_03_RG_MACB38P TF 
+		    	INNER JOIN :TEMP_PAGOS_DIRECTOS_2_82_03_RG_MACB38P_LC TLC ON TF.PERIODSEQ = TLC.PERIODSEQ AND TF.POS_PRIN = TLC.POS_PRIN 
+		    	AND TF.EARNINGGROUPID = TLC.EARNINGGROUPID AND TF.EARNINGCODEID = TLC. EARNINGCODEID AND TF.DEPOSITO = TLC.DEPOSITO
+		    	AND 1 = (CASE WHEN SUMA_PAGOS <> SUMA_IMPORTE THEN 1 END); 
+		 END IF;
+    	-- FIN LIQUIDACIÓN COMPLEMENTARIA
+    	
+    	UPDATE F
+    	SET ESTADO_REPARTO = CASE 
+    		WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 2
+			WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 3
+			ELSE 4 
+		END
+		FROM EXT.FINAL_REPEXT_PAGOS_FILE_TEST F
+		INNER JOIN :TEMP_FINAL_PAGOS_BASES_2_82_03_RG_MACB38P T ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+		AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID;
+		
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_PAGOS_FILE_TEST ESTADOS ACTUALIZADOS: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+	
+		UPDATE F
+            SET ESTADO_REPARTO = CASE 
+    				WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 2
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 3
+					ELSE 4 
+				END --REPARTO CORRECTO
+			FROM :TEMP_REPEXT_PAGOS_REPARTO_FILE F
+			INNER JOIN :TEMP_FINAL_PAGOS_BASES_2_82_03_RG_MACB38P T ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+			AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+			WHERE 1 = (CASE 
+    				WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 1
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+					ELSE 0 
+				END)
+	--		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID
+			;
+        CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_REPEXT_PAGOS_REPARTO_FILE ESTADOS ACTUALIZADOS: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');   
+                                   
+		
+		INSERT INTO EXT.FINAL_REPEXT_FILE_TEST("TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+            ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+            ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+            ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ")
+        SELECT "TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+            ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+            ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+            ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ"
+        FROM :TEMP_FINAL_PAGOS_BASES_2_82_03_RG_MACB38P
+        WHERE 1 = (
+        	CASE 
+        		WHEN (IMPORTE_PAGO - IFNULL(SUMA_IMPORTE,0)) = 0 THEN 1
+    			WHEN (IMPORTE_PAGO - IFNULL(SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+    		ELSE 0 
+    		END);
+			
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_FILE_TEST INSERTADOS: ' ||::ROWCOUNT, v_log_count, v_idproceso, 'info');				
+		---------------------------------------------------------------------------------------------------
+		
+		TEMP_FINAL_PAGOS_BASES_2_82_03_RG_MACB38P_DIF =
+			SELECT T.PERIODSEQ,T.POS_PRIN,T.TIPO_DOCUMENTO,T.DEPOSITSEQ,T.EARNINGCODEID,T.EARNINGGROUPID,T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0) AS DIF,
+				T.ORDERID,T.LINENUMBER,T.SUBLINENUMBER,T.EVENTTYPEID, T.COMPENSATIONDATE,
+				ROW_NUMBER() OVER(
+                      		PARTITION BY T.PERIODSEQ,T.POS_PRIN,T.TIPO_DOCUMENTO,T.DEPOSITSEQ,T.EARNINGCODEID,T.EARNINGGROUPID
+                      		--ORDER BY T.ORDERID
+                      ) AS RN_TRX
+			FROM :TEMP_FINAL_PAGOS_BASES_2_82_03_RG_MACB38P T
+			WHERE 1 = (CASE 
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 0
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+					ELSE 0 
+				END)
+		;
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_FINAL_PAGOS_BASES_2_82_03_RG_MACB38P_DIF: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+		UPDATE F
+    	SET F.IMPORTE = F.IMPORTE + T.DIF
+    	FROM EXT.FINAL_REPEXT_FILE_TEST F
+    	INNER JOIN :TEMP_FINAL_PAGOS_BASES_2_82_03_RG_MACB38P_DIF T  ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+		AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID
+		AND F.ORDERID = T.ORDERID AND F.LINENUMBER = T.LINENUMBER AND F.SUBLINENUMBER = T.SUBLINENUMBER AND F.EVENTTYPEID = T.EVENTTYPEID AND F.COMPENSATIONDATE = T.COMPENSATIONDATE
+		AND T.RN_TRX = 1
+		;
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_FILE_TEST IMPORTE_DIF: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+
+	
+	
+	
+		---------------------------------------------------------------------------------------------------
+		-- 2_82_03_RT
+		---------------------------------------------------------------------------------------------------
+		--BASES
+		IF i_tipo_reparto = 'CIERRE' THEN
+			TEMP_BASES_2_82_03_RT = SELECT * 
+	    		FROM EXT.FINAL_BASES_REPARTO_POLIZA_FILE B
+	    		WHERE PERIODSEQ = i_periodSeq
+	    		-- EARNINGGROUPID = '03-RT'
+	    		--RAMO
+	    		AND PRODUCTID LIKE '032%';
+	    		
+	    	CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_BASES_2_82_03_RT: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+	    ELSE
+	    	TEMP_BASES_2_82_03_RT = SELECT * 
+    		FROM EXT.FINAL_BASES_REPARTO_POLIZA_FILE_NUEVA_BASE_REPARTO B
+    		WHERE PERIODSEQ = v_periodSeqAnterior
+    		-- EARNINGGROUPID = '03-RT'
+    		--RAMO
+    		AND PRODUCTID LIKE '032%';
+    		
+    		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_BASES_2_82_03_RT (BALANCE): ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+    	END IF;
+			
+		
+		--BASES_TOTAL_IMPORTE
+    	BASES_TOTAL_IMPORTE_2_82_03_RT = 
+			SELECT POSITIONSEQ, SUM(DIF_RESP) AS SUMA_IMPORTE
+			FROM :TEMP_BASES_2_82_03_RT
+			WHERE DIF_RESP <> 0
+			GROUP BY POSITIONSEQ;	
+			
+		--FINAL
+    	TEMP_FINAL_PAGOS_BASES_2_82_03_RT = SELECT P.PARTICIPANTSEQ,
+                                P.POSITIONSEQ,
+                                P.PERIODSEQ,
+                                :v_periodName AS PERIODO,
+                                P.POS_CALLIDUS POSITIONNAME,
+                                P.POS_PRIN,
+                                P.NIF,
+                                P.MANAGER_POS_PRIN,
+                                ORDERID,
+                                LINENUMBER,
+                                SUBLINENUMBER,
+                                EVENTTYPEID,
+                                PRODUCTID,
+                                CODIGO_POLIZA,
+                                COMPENSATIONDATE,
+                                ESTADO,
+                                P.PROGRAMA,
+                                P.TIPO_PAGO,
+                                P.DEPOSITO,
+                                P.DEPOSITSEQ,
+                                P.IMPORTE IMPORTE_PAGO,
+                                P.EARNINGCODEID,
+                                P.EARNINGGROUPID,
+                                P.TIPO_DOCUMENTO,
+                                P.TIPO_AGENTE,
+                                B.DIF_RESP AS IMPORTE,
+                                BT.SUMA_IMPORTE AS SUMA_IMPORTE,
+                                NULL AS TIPO_REPARTO,
+                                0 AS NUM_TRAMO,
+                                NULL AS REPARTO_TIPO_BASE,
+                                NULL AS REPARTO_PORCENTAJE,
+                                POLIZA_FISICA,
+                                POLIZA_CORREGIDA,
+                                PRIMA_CORREGIDA,
+                                PRIMA_NETA,
+                                PRIMA_NETA_ANUAL,
+                                PRIMA_COMIS_S4 PRIMA_COMIS,
+                                NULL AS COEF_TIPO_BASE,
+                                NULL AS COEF_CORRECTOR,
+                                COD_AGENTE,
+                                P.TIPO_LIQ
+    					FROM :TEMP_PAGOS_DIRECTOS_03_RT P
+    					INNER JOIN :TEMP_BASES_2_82_03_RT B ON P.POSITIONSEQ = B.POSITIONSEQ
+    					INNER JOIN :BASES_TOTAL_IMPORTE_2_82_03_RT BT ON BT.POSITIONSEQ = B.POSITIONSEQ
+    					WHERE 
+    					--POSTION
+    					(B.POS_PRIN = P.POS_PRIN OR B.MANAGER_POS_PRIN = P.POS_PRIN OR B.MAN_ACT_POS_PRIN = P.POS_PRIN) 
+    					--TIPO AGENTE
+                        AND P.TIPO_AGENTE = '82'
+                        --RAMO
+    					--PERMANENCIA
+    					--TIPO CONCEPTO
+    					AND B.DIF_RESP <> 0
+    					AND NOT EXISTS (
+    					    SELECT 1 
+    					    FROM EXT.FINAL_REPEXT_FILE_TEST X 
+    					    WHERE X.POS_PRIN       = P.POS_PRIN
+    					      AND X.PERIODSEQ      = P.PERIODSEQ
+    					      AND X.EARNINGCODEID  = P.EARNINGCODEID
+    					      AND X.EARNINGGROUPID = P.EARNINGGROUPID
+    					      AND X.TIPO_DOCUMENTO = P.TIPO_DOCUMENTO
+    					      AND X.ORDERID        = B.ORDERID
+    					      AND X.LINENUMBER     = B.LINENUMBER
+    					      AND X.SUBLINENUMBER  = B.SUBLINENUMBER
+    					      AND X.EVENTTYPEID    = B.EVENTTYPEID
+    					);
+    					
+    	CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_FINAL_PAGOS_BASES_2_82_03_RT: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');	
+    	
+    	
+    	
+    	--LIQUIDACIÓN COMPLEMENTARIA
+		IF v_num_post > 1 AND i_tipo_reparto = 'CIERRE' THEN
+		
+			TEMP_PAGOS_DIRECTOS_2_82_03_RT_LC = SELECT SUM(IMPORTE) SUMA_PAGOS,PERIODSEQ,POS_PRIN,EARNINGGROUPID,EARNINGCODEID,DEPOSITO 
+				FROM :TEMP_FINAL_PAGOS_BASES_2_82_03_RT
+				WHERE TIPO_LIQ IN ('CIERRE','LIQ')
+				GROUP BY PERIODSEQ,POS_PRIN,EARNINGGROUPID,EARNINGCODEID,DEPOSITO;
+		
+			INSERT INTO EXT.FINAL_REPEXT_FILE_TEST("TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+		        ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+		        ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+		        ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ")
+		    SELECT "TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+		        ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE"*(-1),"TIPO_AGENTE","TIPO_DOCUMENTO",TF."EARNINGGROUPID"
+		        ,TF."EARNINGCODEID",TF.SUMA_IMPORTE,"DEPOSITSEQ",TF."DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+		        ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF",TF."POS_PRIN","POSITIONNAME","PERIODO",TF."PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ"
+		    FROM :TEMP_FINAL_PAGOS_BASES_2_82_03_RT TF 
+		    	INNER JOIN :TEMP_PAGOS_DIRECTOS_2_82_03_RT_LC TLC ON TF.PERIODSEQ = TLC.PERIODSEQ AND TF.POS_PRIN = TLC.POS_PRIN 
+		    	AND TF.EARNINGGROUPID = TLC.EARNINGGROUPID AND TF.EARNINGCODEID = TLC. EARNINGCODEID AND TF.DEPOSITO = TLC.DEPOSITO
+		    	AND 1 = (CASE WHEN SUMA_PAGOS <> SUMA_IMPORTE THEN 1 END); 
+		 END IF;
+    	-- FIN LIQUIDACIÓN COMPLEMENTARIA
+    	
+    	UPDATE F
+    	SET ESTADO_REPARTO = CASE 
+    		WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 2
+			WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 3
+			ELSE 4 
+		END
+		FROM EXT.FINAL_REPEXT_PAGOS_FILE_TEST F
+		INNER JOIN :TEMP_FINAL_PAGOS_BASES_2_82_03_RT T ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+		AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID;
+		
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_PAGOS_FILE_TEST ESTADOS ACTUALIZADOS: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+		
+		UPDATE F
+            SET ESTADO_REPARTO = CASE 
+    				WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 2
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 3
+					ELSE 4 
+				END --REPARTO CORRECTO
+			FROM :TEMP_REPEXT_PAGOS_REPARTO_FILE F
+			INNER JOIN :TEMP_FINAL_PAGOS_BASES_2_82_03_RT T ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+			AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+			WHERE 1 = (CASE 
+    				WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 1
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+					ELSE 0 
+				END)
+	--		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID
+			;
+        CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_REPEXT_PAGOS_REPARTO_FILE ESTADOS ACTUALIZADOS: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');   
+                                   
+		
+		INSERT INTO EXT.FINAL_REPEXT_FILE_TEST("TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+            ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+            ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+            ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ")
+        SELECT "TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+            ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+            ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+            ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ"
+        FROM :TEMP_FINAL_PAGOS_BASES_2_82_03_RT
+        WHERE 1 = (
+        	CASE 
+        		WHEN (IMPORTE_PAGO - IFNULL(SUMA_IMPORTE,0)) = 0 THEN 1
+    			WHEN (IMPORTE_PAGO - IFNULL(SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+    		ELSE 0 
+    		END);
+			
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_FILE_TEST INSERTADOS: ' ||::ROWCOUNT, v_log_count, v_idproceso, 'info');				
+		---------------------------------------------------------------------------------------------------
+		
+		TEMP_FINAL_PAGOS_BASES_2_82_03_RT_DIF =
+			SELECT T.PERIODSEQ,T.POS_PRIN,T.TIPO_DOCUMENTO,T.DEPOSITSEQ,T.EARNINGCODEID,T.EARNINGGROUPID,T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0) AS DIF,
+T.ORDERID,T.LINENUMBER,T.SUBLINENUMBER,T.EVENTTYPEID, T.COMPENSATIONDATE,
+				ROW_NUMBER() OVER(
+                      		PARTITION BY T.PERIODSEQ,T.POS_PRIN,T.TIPO_DOCUMENTO,T.DEPOSITSEQ,T.EARNINGCODEID,T.EARNINGGROUPID
+                      		--ORDER BY T.ORDERID
+                      ) AS RN_TRX
+			FROM :TEMP_FINAL_PAGOS_BASES_2_82_03_RT T
+			WHERE 1 = (CASE 
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 0
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+					ELSE 0 
+				END)
+		;
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_FINAL_PAGOS_BASES_2_82_03_RT_DIF: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+		UPDATE F
+    	SET F.IMPORTE = F.IMPORTE + T.DIF
+    	FROM EXT.FINAL_REPEXT_FILE_TEST F
+    	INNER JOIN :TEMP_FINAL_PAGOS_BASES_2_82_03_RT_DIF T  ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+		AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID
+		AND F.ORDERID = T.ORDERID AND F.LINENUMBER = T.LINENUMBER AND F.SUBLINENUMBER = T.SUBLINENUMBER AND F.EVENTTYPEID = T.EVENTTYPEID AND F.COMPENSATIONDATE = T.COMPENSATIONDATE
+		AND T.RN_TRX = 1
+		;
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_FILE_TEST IMPORTE_DIF: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+		
+		---------------------------------------------------------------------------------------------------
+		-- 2_82_03_RG
+		---------------------------------------------------------------------------------------------------
+		--BASES
+		IF i_tipo_reparto = 'CIERRE' THEN
+			TEMP_BASES_2_82_03_RG = SELECT * 
+	    		FROM EXT.FINAL_BASES_REPARTO_POLIZA_FILE B
+	    		WHERE PERIODSEQ = i_periodSeq
+	    		-- EARNINGGROUPID = '03-RG'
+	    		AND PRODUCTID LIKE '03%' AND PRODUCTID NOT LIKE '032%';
+	    		
+	    	CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_BASES_2_82_03_RG: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+	    ELSE
+	    	TEMP_BASES_2_82_03_RG = SELECT * 
+    		FROM EXT.FINAL_BASES_REPARTO_POLIZA_FILE_NUEVA_BASE_REPARTO B
+    		WHERE PERIODSEQ = v_periodSeqAnterior
+    		-- EARNINGGROUPID = '03-RG'
+    		AND PRODUCTID LIKE '03%' AND PRODUCTID NOT LIKE '032%';
+    		
+    		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_BASES_2_82_03_RG (BALANCE): ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+    	END IF;
+			
+			
+		--BASES_TOTAL_IMPORTE
+    	BASES_TOTAL_IMPORTE_2_82_03_RG = 
+			SELECT POSITIONSEQ, SUM(DIF_RESP) AS SUMA_IMPORTE
+			FROM :TEMP_BASES_2_82_03_RG
+			WHERE DIF_RESP <> 0
+			GROUP BY POSITIONSEQ;	
+			
+			
+		--FINAL
+    	TEMP_FINAL_PAGOS_BASES_2_82_03_RG = SELECT P.PARTICIPANTSEQ,
+                                P.POSITIONSEQ,
+                                P.PERIODSEQ,
+                                :v_periodName AS PERIODO,
+                                P.POS_CALLIDUS POSITIONNAME,
+                                P.POS_PRIN,
+                                P.NIF,
+                                P.MANAGER_POS_PRIN,
+                                ORDERID,
+                                LINENUMBER,
+                                SUBLINENUMBER,
+                                EVENTTYPEID,
+                                PRODUCTID,
+                                CODIGO_POLIZA,
+                                COMPENSATIONDATE,
+                                ESTADO,
+                                P.PROGRAMA,
+                                P.TIPO_PAGO,
+                                P.DEPOSITO,
+                                P.DEPOSITSEQ,
+                                P.IMPORTE IMPORTE_PAGO,
+                                P.EARNINGCODEID,
+                                P.EARNINGGROUPID,
+                                P.TIPO_DOCUMENTO,
+                                P.TIPO_AGENTE,
+                                B.DIF_RESP AS IMPORTE,
+                                BT.SUMA_IMPORTE AS SUMA_IMPORTE,
+                                NULL AS TIPO_REPARTO,
+                                0 AS NUM_TRAMO,
+                                NULL AS REPARTO_TIPO_BASE,
+                                NULL AS REPARTO_PORCENTAJE,
+                                POLIZA_FISICA,
+                                POLIZA_CORREGIDA,
+                                PRIMA_CORREGIDA,
+                                PRIMA_NETA,
+                                PRIMA_NETA_ANUAL,
+                                PRIMA_COMIS_S4 PRIMA_COMIS,
+                                NULL AS COEF_TIPO_BASE,
+                                NULL AS COEF_CORRECTOR,
+                                COD_AGENTE,
+                                P.TIPO_LIQ
+    					FROM :TEMP_PAGOS_DIRECTOS_03_RG P
+    					INNER JOIN :TEMP_BASES_2_82_03_RG B ON P.POSITIONSEQ = B.POSITIONSEQ
+    					INNER JOIN :BASES_TOTAL_IMPORTE_2_82_03_RG BT ON BT.POSITIONSEQ = B.POSITIONSEQ
+    					WHERE 
+    					--POSITION
+    					(B.POS_PRIN = P.POS_PRIN OR B.MANAGER_POS_PRIN = P.POS_PRIN OR B.MAN_ACT_POS_PRIN = P.POS_PRIN) 
+    					--TIPO AGENTE
+                        AND P.TIPO_AGENTE = '82'
+                        --RAMO
+    					--PERMANENCIA
+    					--TIPO CONCEPTO
+    					AND B.DIF_RESP <> 0
+    					AND NOT EXISTS (
+    					    SELECT 1 
+    					    FROM EXT.FINAL_REPEXT_FILE_TEST X 
+    					    WHERE X.POS_PRIN       = P.POS_PRIN
+    					      AND X.PERIODSEQ      = P.PERIODSEQ
+    					      AND X.EARNINGCODEID  = P.EARNINGCODEID
+    					      AND X.EARNINGGROUPID = P.EARNINGGROUPID
+    					      AND X.TIPO_DOCUMENTO = P.TIPO_DOCUMENTO
+    					      AND X.ORDERID        = B.ORDERID
+    					      AND X.LINENUMBER     = B.LINENUMBER
+    					      AND X.SUBLINENUMBER  = B.SUBLINENUMBER
+    					      AND X.EVENTTYPEID    = B.EVENTTYPEID
+    					);
+    					
+    	CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_FINAL_PAGOS_BASES_2_82_03_RG: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');	
+    	
+    
+    	--LIQUIDACIÓN COMPLEMENTARIA
+		IF v_num_post > 1 AND i_tipo_reparto = 'CIERRE' THEN
+		
+			TEMP_PAGOS_DIRECTOS_2_82_03_RG_LC = SELECT SUM(IMPORTE) SUMA_PAGOS,PERIODSEQ,POS_PRIN,EARNINGGROUPID,EARNINGCODEID,DEPOSITO 
+				FROM :TEMP_FINAL_PAGOS_BASES_2_82_03_RG
+				WHERE TIPO_LIQ IN ('CIERRE','LIQ')
+				GROUP BY PERIODSEQ,POS_PRIN,EARNINGGROUPID,EARNINGCODEID,DEPOSITO;
+		
+			INSERT INTO EXT.FINAL_REPEXT_FILE_TEST("TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+		        ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+		        ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+		        ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ")
+		    SELECT "TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+		        ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE"*(-1),"TIPO_AGENTE","TIPO_DOCUMENTO",TF."EARNINGGROUPID"
+		        ,TF."EARNINGCODEID",TF.SUMA_IMPORTE,"DEPOSITSEQ",TF."DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+		        ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF",TF."POS_PRIN","POSITIONNAME","PERIODO",TF."PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ"
+		    FROM :TEMP_FINAL_PAGOS_BASES_2_82_03_RG TF 
+		    	INNER JOIN :TEMP_PAGOS_DIRECTOS_2_82_03_RG_LC TLC ON TF.PERIODSEQ = TLC.PERIODSEQ AND TF.POS_PRIN = TLC.POS_PRIN 
+		    	AND TF.EARNINGGROUPID = TLC.EARNINGGROUPID AND TF.EARNINGCODEID = TLC. EARNINGCODEID AND TF.DEPOSITO = TLC.DEPOSITO
+		    	AND 1 = (CASE WHEN SUMA_PAGOS <> SUMA_IMPORTE THEN 1 END); 
+		 END IF;
+    	-- FIN LIQUIDACIÓN COMPLEMENTARIA
+    	
+    	UPDATE F
+    	SET ESTADO_REPARTO = CASE 
+    		WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 2
+			WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 3
+			ELSE 4 
+		END
+		FROM EXT.FINAL_REPEXT_PAGOS_FILE_TEST F
+		INNER JOIN :TEMP_FINAL_PAGOS_BASES_2_82_03_RG T ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+		AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID;
+		
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_PAGOS_FILE_TEST ESTADOS ACTUALIZADOS: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+		
+		UPDATE F
+            SET ESTADO_REPARTO = CASE 
+    				WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 2
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 3
+					ELSE 4 
+				END --REPARTO CORRECTO
+			FROM :TEMP_REPEXT_PAGOS_REPARTO_FILE F
+			INNER JOIN :TEMP_FINAL_PAGOS_BASES_2_82_03_RG T ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+			AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+			WHERE 1 = (CASE 
+    				WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 1
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+					ELSE 0 
+				END)
+	--		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID
+			;
+        CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_REPEXT_PAGOS_REPARTO_FILE ESTADOS ACTUALIZADOS: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');   
+                                   
+		
+		INSERT INTO EXT.FINAL_REPEXT_FILE_TEST("TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+            ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+            ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+            ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ")
+        SELECT "TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+            ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+            ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+            ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ"
+        FROM :TEMP_FINAL_PAGOS_BASES_2_82_03_RG
+        WHERE 1 = (
+        	CASE 
+        		WHEN (IMPORTE_PAGO - IFNULL(SUMA_IMPORTE,0)) = 0 THEN 1
+    			WHEN (IMPORTE_PAGO - IFNULL(SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+    		ELSE 0 
+    		END);
+			
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_FILE_TEST INSERTADOS: ' ||::ROWCOUNT, v_log_count, v_idproceso, 'info');				
+		---------------------------------------------------------------------------------------------------
+		
+		TEMP_FINAL_PAGOS_BASES_2_82_03_RG_DIF =
+			SELECT T.PERIODSEQ,T.POS_PRIN,T.TIPO_DOCUMENTO,T.DEPOSITSEQ,T.EARNINGCODEID,T.EARNINGGROUPID,T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0) AS DIF,
+				T.ORDERID,T.LINENUMBER,T.SUBLINENUMBER,T.EVENTTYPEID, T.COMPENSATIONDATE,
+				ROW_NUMBER() OVER(
+                      		PARTITION BY T.PERIODSEQ,T.POS_PRIN,T.TIPO_DOCUMENTO,T.DEPOSITSEQ,T.EARNINGCODEID,T.EARNINGGROUPID
+                      		--ORDER BY T.ORDERID
+                      ) AS RN_TRX
+			FROM :TEMP_FINAL_PAGOS_BASES_2_82_03_RG T
+			WHERE 1 = (CASE 
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 0
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+					ELSE 0 
+				END)
+		;
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_FINAL_PAGOS_BASES_2_82_03_RG_DIF: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+		UPDATE F
+    	SET F.IMPORTE = F.IMPORTE + T.DIF
+    	FROM EXT.FINAL_REPEXT_FILE_TEST F
+    	INNER JOIN :TEMP_FINAL_PAGOS_BASES_2_82_03_RG_DIF T  ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+		AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID
+		AND F.ORDERID = T.ORDERID AND F.LINENUMBER = T.LINENUMBER AND F.SUBLINENUMBER = T.SUBLINENUMBER AND F.EVENTTYPEID = T.EVENTTYPEID AND F.COMPENSATIONDATE = T.COMPENSATIONDATE
+		AND T.RN_TRX = 1
+		;
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_FILE_TEST IMPORTE_DIF: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+		
+		---------------------------------------------------------------------------------------------------
+		-- 2_03_RT_MACB38P
+		---------------------------------------------------------------------------------------------------
+		--BASES
+		IF i_tipo_reparto = 'CIERRE' THEN
+			TEMP_BASES_2_03_RT_MACB38P = SELECT * 
+	    		FROM EXT.FINAL_BASES_REPARTO_POLIZA_FILE B
+	    		WHERE PERIODSEQ = i_periodSeq
+	    		--RAMO EARNINGGROUPID = '03-RT'
+	    		--AND PRODUCTID LIKE '032%'
+	    	;
+	    	
+	    	CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_BASES_2_03_RT_MACB38P: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+	    ELSE
+	    	TEMP_BASES_2_03_RT_MACB38P = SELECT * 
+    		FROM EXT.FINAL_BASES_REPARTO_POLIZA_FILE_NUEVA_BASE_REPARTO B
+    		WHERE PERIODSEQ = v_periodSeqAnterior
+    		--RAMO EARNINGGROUPID = '03-RT'
+    		--AND PRODUCTID LIKE '032%'
+    	;
+    	
+    		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_BASES_2_03_RT_MACB38P (BALANCE): ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+    	END IF;
+		
+			
+		-- --BASES_TOTAL_IMPORTE
+  --  	BASES_TOTAL_IMPORTE_2_03_RT_MACB38P = 
+		-- 	SELECT POSITIONSEQ, SUM(IMPORTE_COMISION) AS SUMA_IMPORTE
+		-- 	FROM :TEMP_BASES_2_03_RT_MACB38P
+		-- 	WHERE IMPORTE_COMISION <> 0
+		-- 	GROUP BY POSITIONSEQ;
+			
+			
+		--FINAL
+    	TEMP_FINAL_PAGOS_BASES_2_03_RT_MACB38P = SELECT P.PARTICIPANTSEQ,
+                                P.POSITIONSEQ,
+                                P.PERIODSEQ,
+                                :v_periodName AS PERIODO,
+                                P.POS_CALLIDUS POSITIONNAME,
+                                P.POS_PRIN,
+                                P.NIF,
+                                P.MANAGER_POS_PRIN,
+                                ORDERID,
+                                LINENUMBER,
+                                SUBLINENUMBER,
+                                EVENTTYPEID,
+                                PRODUCTID,
+                                CODIGO_POLIZA,
+                                COMPENSATIONDATE,
+                                ESTADO,
+                                P.PROGRAMA,
+                                P.TIPO_PAGO,
+                                P.DEPOSITO,
+                                P.DEPOSITSEQ,
+                                P.IMPORTE IMPORTE_PAGO,
+                                P.EARNINGCODEID,
+                                P.EARNINGGROUPID,
+                                P.TIPO_DOCUMENTO,
+                                P.TIPO_AGENTE,
+                                B.IMPORTE_COMISION AS IMPORTE,
+                                (SELECT SUM(IMPORTE_COMISION)
+                                	FROM :TEMP_BASES_2_03_RT_MACB38P S
+                                	WHERE S.POSITIONSEQ = B.POSITIONSEQ
+                                	AND S.PRODUCTID LIKE '%'||RIGHT(P.EARNINGCODEID,5)
+									AND S.EVENTTYPEID = 'Pago Comercial'
+                                ) AS SUMA_IMPORTE,
+                                NULL AS TIPO_REPARTO,
+                                0 AS NUM_TRAMO,
+                                NULL AS REPARTO_TIPO_BASE,
+                                NULL AS REPARTO_PORCENTAJE,
+                                POLIZA_FISICA,
+                                POLIZA_CORREGIDA,
+                                PRIMA_CORREGIDA,
+                                PRIMA_NETA,
+                                PRIMA_NETA_ANUAL,
+                                PRIMA_COMIS_S4 PRIMA_COMIS,
+                                NULL AS COEF_TIPO_BASE,
+                                NULL AS COEF_CORRECTOR,
+                                COD_AGENTE,
+                                P.TIPO_LIQ
+    					FROM :TEMP_PAGOS_DIRECTOS_03_RT P
+    					INNER JOIN :TEMP_BASES_2_03_RT_MACB38P B ON P.POSITIONSEQ = B.POSITIONSEQ
+    					--INNER JOIN :BASES_TOTAL_IMPORTE_2_03_RT_MACB38P BT ON BT.POSITIONSEQ = B.POSITIONSEQ
+    					WHERE 
+    					--POSITION
+    					(B.POS_PRIN = P.POS_PRIN OR B.MANAGER_POS_PRIN = P.POS_PRIN) 
+    					--TIPO AGENTE
+                        AND P.TIPO_AGENTE != '82'
+                        --RAMO
+    					AND B.PRODUCTID LIKE '%'||RIGHT(P.EARNINGCODEID,5)||'%'
+    					--PERMANENCIA
+    					AND B.EVENTTYPEID = 'Pago Comercial' AND B.CODIGO_POLIZA = P.EARNINGGROUPID AND ESTADO = SUBSTRING(P.EARNINGCODEID,1,3)
+    					--TIPO CONCEPTO
+    					AND B.IMPORTE_COMISION <> 0
+    					AND NOT EXISTS (
+    					    SELECT 1 
+    					    FROM EXT.FINAL_REPEXT_FILE_TEST X 
+    					    WHERE X.POS_PRIN       = P.POS_PRIN
+    					      AND X.PERIODSEQ      = P.PERIODSEQ
+    					      AND X.EARNINGCODEID  = P.EARNINGCODEID
+    					      AND X.EARNINGGROUPID = P.EARNINGGROUPID
+    					      AND X.TIPO_DOCUMENTO = P.TIPO_DOCUMENTO
+    					      AND X.ORDERID        = B.ORDERID
+    					      AND X.LINENUMBER     = B.LINENUMBER
+    					      AND X.SUBLINENUMBER  = B.SUBLINENUMBER
+    					      AND X.EVENTTYPEID    = B.EVENTTYPEID
+    					);
+    					
+    	CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_FINAL_PAGOS_BASES_2_03_RT_MACB38P: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');	
+    	
+    	--SELECT 'TEMP_FINAL_PAGOS_BASES_2_03_RT_MACB38P',* FROM :TEMP_FINAL_PAGOS_BASES_2_03_RT_MACB38P;
+    	
+    	--LIQUIDACIÓN COMPLEMENTARIA
+		IF v_num_post > 1 AND i_tipo_reparto = 'CIERRE' THEN
+		
+			TEMP_PAGOS_DIRECTOS_2_03_RT_MACB38P_LC = SELECT SUM(IMPORTE) SUMA_PAGOS,PERIODSEQ,POS_PRIN,EARNINGGROUPID,EARNINGCODEID,DEPOSITO 
+				FROM :TEMP_FINAL_PAGOS_BASES_2_03_RT_MACB38P
+				WHERE TIPO_LIQ IN ('CIERRE','LIQ')
+				GROUP BY PERIODSEQ,POS_PRIN,EARNINGGROUPID,EARNINGCODEID,DEPOSITO;
+		
+			INSERT INTO EXT.FINAL_REPEXT_FILE_TEST("TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+		        ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+		        ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+		        ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ")
+		    SELECT "TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+		        ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE"*(-1),"TIPO_AGENTE","TIPO_DOCUMENTO",TF."EARNINGGROUPID"
+		        ,TF."EARNINGCODEID",TF.SUMA_IMPORTE,"DEPOSITSEQ",TF."DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+		        ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF",TF."POS_PRIN","POSITIONNAME","PERIODO",TF."PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ"
+		    FROM :TEMP_FINAL_PAGOS_BASES_2_03_RT_MACB38P TF 
+		    	INNER JOIN :TEMP_PAGOS_DIRECTOS_2_03_RT_MACB38P_LC TLC ON TF.PERIODSEQ = TLC.PERIODSEQ AND TF.POS_PRIN = TLC.POS_PRIN 
+		    	AND TF.EARNINGGROUPID = TLC.EARNINGGROUPID AND TF.EARNINGCODEID = TLC. EARNINGCODEID AND TF.DEPOSITO = TLC.DEPOSITO
+		    	AND 1 = (CASE WHEN SUMA_PAGOS <> SUMA_IMPORTE THEN 1 END); 
+		 END IF;
+    	-- FIN LIQUIDACIÓN COMPLEMENTARIA
+    	
+    	UPDATE F
+    	SET ESTADO_REPARTO = CASE 
+    		WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 2
+			WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 3
+			ELSE 4 
+		END
+		FROM EXT.FINAL_REPEXT_PAGOS_FILE_TEST F
+		INNER JOIN :TEMP_FINAL_PAGOS_BASES_2_03_RT_MACB38P T ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+		AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID;
+		
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_PAGOS_FILE_TEST ESTADOS ACTUALIZADOS: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+		
+		UPDATE F
+            SET ESTADO_REPARTO = CASE 
+    				WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 2
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 3
+					ELSE 4 
+				END --REPARTO CORRECTO
+			FROM :TEMP_REPEXT_PAGOS_REPARTO_FILE F
+			INNER JOIN :TEMP_FINAL_PAGOS_BASES_2_03_RT_MACB38P T ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+			AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+			WHERE 1 = (CASE 
+    				WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 1
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+					ELSE 0 
+				END)
+	--		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID
+			;
+        CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_REPEXT_PAGOS_REPARTO_FILE ESTADOS ACTUALIZADOS: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');   
+                                   
+		
+		INSERT INTO EXT.FINAL_REPEXT_FILE_TEST("TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+            ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+            ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+            ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ")
+        SELECT "TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+            ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+            ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+            ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ"
+        FROM :TEMP_FINAL_PAGOS_BASES_2_03_RT_MACB38P
+        WHERE 1 = (
+        	CASE 
+        		WHEN (IMPORTE_PAGO - IFNULL(SUMA_IMPORTE,0)) = 0 THEN 1
+    			WHEN (IMPORTE_PAGO - IFNULL(SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+    		ELSE 0 
+    		END);
+
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_FILE_TEST INSERTADOS: ' ||::ROWCOUNT, v_log_count, v_idproceso, 'info');				
+		---------------------------------------------------------------------------------------------------
+		
+		TEMP_FINAL_PAGOS_BASES_2_03_RT_MACB38P_DIF =
+			SELECT T.PERIODSEQ,T.POS_PRIN,T.TIPO_DOCUMENTO,T.DEPOSITSEQ,T.EARNINGCODEID,T.EARNINGGROUPID,T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0) AS DIF,
+				T.ORDERID,T.LINENUMBER,T.SUBLINENUMBER,T.EVENTTYPEID, T.COMPENSATIONDATE,
+				ROW_NUMBER() OVER(
+                      		PARTITION BY T.PERIODSEQ,T.POS_PRIN,T.TIPO_DOCUMENTO,T.DEPOSITSEQ,T.EARNINGCODEID,T.EARNINGGROUPID
+                      		--ORDER BY T.ORDERID
+                      ) AS RN_TRX
+			FROM :TEMP_FINAL_PAGOS_BASES_2_03_RT_MACB38P T
+			WHERE 1 = (CASE 
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 0
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+					ELSE 0 
+				END)
+		;
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_FINAL_PAGOS_BASES_2_03_RT_MACB38P_DIF: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+		UPDATE F
+    	SET F.IMPORTE = F.IMPORTE + T.DIF
+    	FROM EXT.FINAL_REPEXT_FILE_TEST F
+    	INNER JOIN :TEMP_FINAL_PAGOS_BASES_2_03_RT_MACB38P_DIF T  ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+		AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID
+		AND F.ORDERID = T.ORDERID AND F.LINENUMBER = T.LINENUMBER AND F.SUBLINENUMBER = T.SUBLINENUMBER AND F.EVENTTYPEID = T.EVENTTYPEID AND F.COMPENSATIONDATE = T.COMPENSATIONDATE
+		AND T.RN_TRX = 1
+		;
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_FILE_TEST IMPORTE_DIF: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+		
+		
+		
+		
+		---------------------------------------------------------------------------------------------------
+		-- 2_03_RG_MACB38P
+		---------------------------------------------------------------------------------------------------
+		--BASES
+		IF i_tipo_reparto = 'CIERRE' THEN
+			TEMP_BASES_2_03_RG_MACB38P = SELECT * 
+	    		FROM EXT.FINAL_BASES_REPARTO_POLIZA_FILE B
+	    		WHERE PERIODSEQ = i_periodSeq
+	    		--RAMO EARNINGGROUPID = '03-RT'
+	    		--AND PRODUCTID LIKE '032%'
+	    		;
+	    		
+	    	CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_BASES_2_03_RG_MACB38P: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		ELSE
+			TEMP_BASES_2_03_RG_MACB38P = SELECT * 
+    		FROM EXT.FINAL_BASES_REPARTO_POLIZA_FILE_NUEVA_BASE_REPARTO B
+    		WHERE PERIODSEQ = v_periodSeqAnterior
+    		--RAMO EARNINGGROUPID = '03-RT'
+    		--AND PRODUCTID LIKE '032%'
+    		;
+    		
+    		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_BASES_2_03_RG_MACB38P (BALANCE): ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+    	END IF;
+			
+		-- --BASES_TOTAL_IMPORTE
+  --  	BASES_TOTAL_IMPORTE_2_03_RG_MACB38P = 
+		-- 	SELECT POSITIONSEQ, SUM(IMPORTE_COMISION) AS SUMA_IMPORTE
+		-- 	FROM :TEMP_BASES_2_03_RG_MACB38P
+		-- 	WHERE IMPORTE_COMISION <> 0
+		-- 	GROUP BY POSITIONSEQ;
+
+			
+		--FINAL
+    	TEMP_FINAL_PAGOS_BASES_2_03_RG_MACB38P = SELECT P.PARTICIPANTSEQ,
+                                P.POSITIONSEQ,
+                                P.PERIODSEQ,
+                                :v_periodName AS PERIODO,
+                                P.POS_CALLIDUS POSITIONNAME,
+                                P.POS_PRIN,
+                                P.NIF,
+                                P.MANAGER_POS_PRIN,
+                                ORDERID,
+                                LINENUMBER,
+                                SUBLINENUMBER,
+                                EVENTTYPEID,
+                                PRODUCTID,
+                                CODIGO_POLIZA,
+                                COMPENSATIONDATE,
+                                ESTADO,
+                                P.PROGRAMA,
+                                P.TIPO_PAGO,
+                                P.DEPOSITO,
+                                P.DEPOSITSEQ,
+                                P.IMPORTE IMPORTE_PAGO,
+                                P.EARNINGCODEID,
+                                P.EARNINGGROUPID,
+                                P.TIPO_DOCUMENTO,
+                                P.TIPO_AGENTE,
+                                B.IMPORTE_COMISION AS IMPORTE,
+                                (SELECT SUM(IMPORTE_COMISION)
+                                	FROM :TEMP_BASES_2_03_RG_MACB38P S
+                                	WHERE S.POSITIONSEQ = B.POSITIONSEQ
+                                	AND S.PRODUCTID LIKE '%'||RIGHT(P.EARNINGCODEID,5)
+									AND S.EVENTTYPEID = 'Pago Comercial'
+                                ) AS SUMA_IMPORTE,
+                                NULL AS TIPO_REPARTO,
+                                0 AS NUM_TRAMO,
+                                NULL AS REPARTO_TIPO_BASE,
+                                NULL AS REPARTO_PORCENTAJE,
+                                POLIZA_FISICA,
+                                POLIZA_CORREGIDA,
+                                PRIMA_CORREGIDA,
+                                PRIMA_NETA,
+                                PRIMA_NETA_ANUAL,
+                                PRIMA_COMIS_S4 PRIMA_COMIS,
+                                NULL AS COEF_TIPO_BASE,
+                                NULL AS COEF_CORRECTOR,
+                                COD_AGENTE,
+                                P.TIPO_LIQ
+    					FROM :TEMP_PAGOS_DIRECTOS_03_RG P
+    					INNER JOIN :TEMP_BASES_2_03_RG_MACB38P B ON P.POSITIONSEQ = B.POSITIONSEQ
+    					--INNER JOIN :BASES_TOTAL_IMPORTE_2_03_RG_MACB38P BT ON BT.POSITIONSEQ = B.POSITIONSEQ
+    					WHERE 
+    					--POSITION
+    					(B.POS_PRIN = P.POS_PRIN OR B.MANAGER_POS_PRIN = P.POS_PRIN ) 
+    					--TIPO AGENTE
+                        AND P.TIPO_AGENTE != '82'
+                        --RAMO
+    					AND B.PRODUCTID LIKE '%'||RIGHT(P.EARNINGCODEID,5)
+    					--PERMANENCIA
+    					AND B.EVENTTYPEID = 'Pago Comercial' AND B.CODIGO_POLIZA = P.EARNINGGROUPID AND ESTADO = SUBSTRING(P.EARNINGCODEID,1,3)
+    					--TIPO CONCEPTO
+    					AND B.IMPORTE_COMISION <> 0
+    					AND NOT EXISTS (
+    					    SELECT 1 
+    					    FROM EXT.FINAL_REPEXT_FILE_TEST X 
+    					    WHERE X.POS_PRIN       = P.POS_PRIN
+    					      AND X.PERIODSEQ      = P.PERIODSEQ
+    					      AND X.EARNINGCODEID  = P.EARNINGCODEID
+    					      AND X.EARNINGGROUPID = P.EARNINGGROUPID
+    					      AND X.TIPO_DOCUMENTO = P.TIPO_DOCUMENTO
+    					      AND X.ORDERID        = B.ORDERID
+    					      AND X.LINENUMBER     = B.LINENUMBER
+    					      AND X.SUBLINENUMBER  = B.SUBLINENUMBER
+    					      AND X.EVENTTYPEID    = B.EVENTTYPEID
+    					);
+    					
+    	CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_FINAL_PAGOS_BASES_2_03_RG_MACB38P: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');	
+    	
+    	
+    	
+    	--LIQUIDACIÓN COMPLEMENTARIA
+		IF v_num_post > 1 AND i_tipo_reparto = 'CIERRE' THEN
+		
+			TEMP_PAGOS_DIRECTOS_2_03_RG_MACB38P_LC = SELECT SUM(IMPORTE) SUMA_PAGOS,PERIODSEQ,POS_PRIN,EARNINGGROUPID,EARNINGCODEID,DEPOSITO 
+				FROM :TEMP_FINAL_PAGOS_BASES_2_03_RG_MACB38P
+				WHERE TIPO_LIQ IN ('CIERRE','LIQ')
+				GROUP BY PERIODSEQ,POS_PRIN,EARNINGGROUPID,EARNINGCODEID,DEPOSITO;
+		
+			INSERT INTO EXT.FINAL_REPEXT_FILE_TEST("TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+		        ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+		        ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+		        ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ")
+		    SELECT "TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+		        ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE"*(-1),"TIPO_AGENTE","TIPO_DOCUMENTO",TF."EARNINGGROUPID"
+		        ,TF."EARNINGCODEID",TF.SUMA_IMPORTE,"DEPOSITSEQ",TF."DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+		        ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF",TF."POS_PRIN","POSITIONNAME","PERIODO",TF."PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ"
+		    FROM :TEMP_FINAL_PAGOS_BASES_2_03_RG_MACB38P TF 
+		    	INNER JOIN :TEMP_PAGOS_DIRECTOS_2_03_RG_MACB38P_LC TLC ON TF.PERIODSEQ = TLC.PERIODSEQ AND TF.POS_PRIN = TLC.POS_PRIN 
+		    	AND TF.EARNINGGROUPID = TLC.EARNINGGROUPID AND TF.EARNINGCODEID = TLC. EARNINGCODEID AND TF.DEPOSITO = TLC.DEPOSITO
+		    	AND 1 = (CASE WHEN SUMA_PAGOS <> SUMA_IMPORTE THEN 1 END); 
+		 END IF;
+    	-- FIN LIQUIDACIÓN COMPLEMENTARIA
+    	
+    	UPDATE F
+    	SET ESTADO_REPARTO = CASE 
+    		WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 2
+			WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 3
+			ELSE 4 
+		END
+		FROM EXT.FINAL_REPEXT_PAGOS_FILE_TEST F
+		INNER JOIN :TEMP_FINAL_PAGOS_BASES_2_03_RG_MACB38P T ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+		AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID;
+		
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_PAGOS_FILE_TEST ESTADOS ACTUALIZADOS: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+		
+		UPDATE F
+            SET ESTADO_REPARTO = CASE 
+    				WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 2
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 3
+					ELSE 4 
+				END --REPARTO CORRECTO
+			FROM :TEMP_REPEXT_PAGOS_REPARTO_FILE F
+			INNER JOIN :TEMP_FINAL_PAGOS_BASES_2_03_RG_MACB38P T ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+			AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+			WHERE 1 = (CASE 
+    				WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 1
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+					ELSE 0 
+				END)
+	--		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID
+			;
+        CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_REPEXT_PAGOS_REPARTO_FILE ESTADOS ACTUALIZADOS: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');   
+                                   
+		
+		INSERT INTO EXT.FINAL_REPEXT_FILE_TEST("TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+            ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+            ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+            ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ")
+        SELECT "TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+            ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+            ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+            ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ"
+        FROM :TEMP_FINAL_PAGOS_BASES_2_03_RG_MACB38P
+        WHERE 1 = (
+        	CASE 
+        		WHEN (IMPORTE_PAGO - IFNULL(SUMA_IMPORTE,0)) = 0 THEN 1
+    			WHEN (IMPORTE_PAGO - IFNULL(SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+    		ELSE 0 
+    		END);
+
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_FILE_TEST INSERTADOS: ' ||::ROWCOUNT, v_log_count, v_idproceso, 'info');				
+		---------------------------------------------------------------------------------------------------
+		
+		TEMP_FINAL_PAGOS_BASES_2_03_RG_MACB38P_DIF =
+			SELECT T.PERIODSEQ,T.POS_PRIN,T.TIPO_DOCUMENTO,T.DEPOSITSEQ,T.EARNINGCODEID,T.EARNINGGROUPID,T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0) AS DIF,
+				T.ORDERID,T.LINENUMBER,T.SUBLINENUMBER,T.EVENTTYPEID, T.COMPENSATIONDATE,
+				ROW_NUMBER() OVER(
+                      		PARTITION BY T.PERIODSEQ,T.POS_PRIN,T.TIPO_DOCUMENTO,T.DEPOSITSEQ,T.EARNINGCODEID,T.EARNINGGROUPID
+                      		--ORDER BY T.ORDERID
+                      ) AS RN_TRX
+			FROM :TEMP_FINAL_PAGOS_BASES_2_03_RG_MACB38P T
+			WHERE 1 = (CASE 
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 0
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+					ELSE 0 
+				END)
+		;
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_FINAL_PAGOS_BASES_2_03_RG_MACB38P_DIF: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+		UPDATE F
+    	SET F.IMPORTE = F.IMPORTE + T.DIF
+    	FROM EXT.FINAL_REPEXT_FILE_TEST F
+    	INNER JOIN :TEMP_FINAL_PAGOS_BASES_2_03_RG_MACB38P_DIF T  ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+		AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID
+		AND F.ORDERID = T.ORDERID AND F.LINENUMBER = T.LINENUMBER AND F.SUBLINENUMBER = T.SUBLINENUMBER AND F.EVENTTYPEID = T.EVENTTYPEID AND F.COMPENSATIONDATE = T.COMPENSATIONDATE
+		AND T.RN_TRX = 1
+		;
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_FILE_TEST IMPORTE_DIF: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+		---------------------------------------------------------------------------------------------------
+		-- 2_82_RT_MACB38P
+		---------------------------------------------------------------------------------------------------
+		
+		--BASES
+		IF i_tipo_reparto = 'CIERRE' THEN
+			TEMP_BASES_2_82_RT_MACB38P = SELECT * 
+	    		FROM EXT.FINAL_BASES_REPARTO_POLIZA_FILE B
+	    		WHERE PERIODSEQ = i_periodSeq
+	    		--RAMO EARNINGGROUPID = '03-RT'
+	    		--AND PRODUCTID LIKE '032%'
+	    		;
+	    	CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_BASES_2_82_RT_MACB38P: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+	    ELSE
+	    	TEMP_BASES_2_82_RT_MACB38P = SELECT * 
+    		FROM EXT.FINAL_BASES_REPARTO_POLIZA_FILE_NUEVA_BASE_REPARTO B
+    		WHERE PERIODSEQ = v_periodSeqAnterior
+    		--RAMO EARNINGGROUPID = '03-RT'
+    		--AND PRODUCTID LIKE '032%'
+    		;
+    		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_BASES_2_82_RT_MACB38P (BALANCE): ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+    	END IF;
+		
+			
+		-- --BASES_TOTAL_IMPORTE
+  --  	BASES_TOTAL_IMPORTE_2_82_RT_MACB38P = 
+		-- 	SELECT POSITIONSEQ, SUM(IMPORTE_COMISION) AS SUMA_IMPORTE
+		-- 	FROM :TEMP_BASES_2_82_RT_MACB38P
+		-- 	WHERE IMPORTE_COMISION <> 0
+		-- 	GROUP BY POSITIONSEQ;
+
+			
+		--FINAL
+    	TEMP_FINAL_PAGOS_BASES_2_82_RT_MACB38P = SELECT P.PARTICIPANTSEQ,
+                                P.POSITIONSEQ,
+                                P.PERIODSEQ,
+                                :v_periodName AS PERIODO,
+                                P.POS_CALLIDUS POSITIONNAME,
+                                P.POS_PRIN,
+                                P.NIF,
+                                P.MANAGER_POS_PRIN,
+                                ORDERID,
+                                LINENUMBER,
+                                SUBLINENUMBER,
+                                EVENTTYPEID,
+                                PRODUCTID,
+                                CODIGO_POLIZA,
+                                COMPENSATIONDATE,
+                                ESTADO,
+                                P.PROGRAMA,
+                                P.TIPO_PAGO,
+                                P.DEPOSITO,
+                                P.DEPOSITSEQ,
+                                P.IMPORTE IMPORTE_PAGO,
+                                P.EARNINGCODEID,
+                                P.EARNINGGROUPID,
+                                P.TIPO_DOCUMENTO,
+                                P.TIPO_AGENTE,
+                                B.IMPORTE_COMISION AS IMPORTE,
+                                (SELECT SUM(IMPORTE_COMISION)
+                                	FROM :TEMP_BASES_2_82_RT_MACB38P S
+                                	WHERE S.POSITIONSEQ = B.POSITIONSEQ
+                                	AND S.PRODUCTID LIKE '%'||RIGHT(P.EARNINGCODEID,5)
+									AND S.EVENTTYPEID = 'Pago Comercial'
+                                ) AS SUMA_IMPORTE,
+                                NULL AS TIPO_REPARTO,
+                                0 AS NUM_TRAMO,
+                                NULL AS REPARTO_TIPO_BASE,
+                                NULL AS REPARTO_PORCENTAJE,
+                                POLIZA_FISICA,
+                                POLIZA_CORREGIDA,
+                                PRIMA_CORREGIDA,
+                                PRIMA_NETA,
+                                PRIMA_NETA_ANUAL,
+                                PRIMA_COMIS_S4 PRIMA_COMIS,
+                                NULL AS COEF_TIPO_BASE,
+                                NULL AS COEF_CORRECTOR,
+                                COD_AGENTE,
+                                P.TIPO_LIQ
+    					FROM :TEMP_PAGOS_DIRECTOS_RT P
+    					INNER JOIN :TEMP_BASES_2_82_RT_MACB38P B ON P.POSITIONSEQ = B.POSITIONSEQ
+    					--INNER JOIN :BASES_TOTAL_IMPORTE_2_82_RT_MACB38P BT ON BT.POSITIONSEQ = B.POSITIONSEQ
+    					--POSITION
+    					WHERE ((B.POS_PRIN = P.POS_PRIN AND (IFNULL(B.CAMBIO_AG_INSP,'0') = '0')) OR B.MANAGER_POS_PRIN = P.POS_PRIN OR B.MAN_ACT_POS_PRIN = P.POS_PRIN)
+    					--TIPO AGENTE
+                        AND P.TIPO_AGENTE = '82'
+                        --RAMO
+    					AND B.PRODUCTID LIKE '%'||RIGHT(P.EARNINGCODEID,5)
+    					--PERMANENCIA
+    					AND B.EVENTTYPEID = 'Pago Comercial' AND B.CODIGO_POLIZA = P.EARNINGGROUPID AND ESTADO = SUBSTRING(P.EARNINGCODEID,1,3)
+    					--TIPO CONCEPTO
+    					AND B.IMPORTE_COMISION <> 0
+    					AND NOT EXISTS (
+    					    SELECT 1 
+    					    FROM EXT.FINAL_REPEXT_FILE_TEST X 
+    					    WHERE X.POS_PRIN       = P.POS_PRIN
+    					      AND X.PERIODSEQ      = P.PERIODSEQ
+    					      AND X.EARNINGCODEID  = P.EARNINGCODEID
+    					      AND X.EARNINGGROUPID = P.EARNINGGROUPID
+    					      AND X.TIPO_DOCUMENTO = P.TIPO_DOCUMENTO
+    					      AND X.ORDERID        = B.ORDERID
+    					      AND X.LINENUMBER     = B.LINENUMBER
+    					      AND X.SUBLINENUMBER  = B.SUBLINENUMBER
+    					      AND X.EVENTTYPEID    = B.EVENTTYPEID
+    					);
+    					
+    	CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_FINAL_PAGOS_BASES_2_82_RT_MACB38P: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');	
+    	
+    	
+    	
+    	--LIQUIDACIÓN COMPLEMENTARIA
+		IF v_num_post > 1 AND i_tipo_reparto = 'CIERRE' THEN
+		
+			TEMP_PAGOS_DIRECTOS_2_82_RT_MACB38P_LC = SELECT SUM(IMPORTE) SUMA_PAGOS,PERIODSEQ,POS_PRIN,EARNINGGROUPID,EARNINGCODEID,DEPOSITO 
+				FROM :TEMP_FINAL_PAGOS_BASES_2_82_RT_MACB38P
+				WHERE TIPO_LIQ IN ('CIERRE','LIQ')
+				GROUP BY PERIODSEQ,POS_PRIN,EARNINGGROUPID,EARNINGCODEID,DEPOSITO;
+		
+			INSERT INTO EXT.FINAL_REPEXT_FILE_TEST("TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+		        ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+		        ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+		        ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ")
+		    SELECT "TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+		        ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE"*(-1),"TIPO_AGENTE","TIPO_DOCUMENTO",TF."EARNINGGROUPID"
+		        ,TF."EARNINGCODEID",TF.SUMA_IMPORTE,"DEPOSITSEQ",TF."DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+		        ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF",TF."POS_PRIN","POSITIONNAME","PERIODO",TF."PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ"
+		    FROM :TEMP_FINAL_PAGOS_BASES_2_82_RT_MACB38P TF 
+		    	INNER JOIN :TEMP_PAGOS_DIRECTOS_2_82_RT_MACB38P_LC TLC ON TF.PERIODSEQ = TLC.PERIODSEQ AND TF.POS_PRIN = TLC.POS_PRIN 
+		    	AND TF.EARNINGGROUPID = TLC.EARNINGGROUPID AND TF.EARNINGCODEID = TLC. EARNINGCODEID AND TF.DEPOSITO = TLC.DEPOSITO
+		    	AND 1 = (CASE WHEN SUMA_PAGOS <> SUMA_IMPORTE THEN 1 END); 
+		 END IF;
+    	-- FIN LIQUIDACIÓN COMPLEMENTARIA
+    	
+    	UPDATE F
+    	SET ESTADO_REPARTO = CASE 
+    		WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 2
+			WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 3
+			ELSE 4 
+		END
+		FROM EXT.FINAL_REPEXT_PAGOS_FILE_TEST F
+		INNER JOIN :TEMP_FINAL_PAGOS_BASES_2_82_RT_MACB38P T ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+		AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID;
+		
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_PAGOS_FILE_TEST ESTADOS ACTUALIZADOS: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+		
+		UPDATE F
+            SET ESTADO_REPARTO = CASE 
+    				WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 2
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 3
+					ELSE 4 
+				END --REPARTO CORRECTO
+			FROM :TEMP_REPEXT_PAGOS_REPARTO_FILE F
+			INNER JOIN :TEMP_FINAL_PAGOS_BASES_2_82_RT_MACB38P T ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+			AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+			WHERE 1 = (CASE 
+    				WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 1
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+					ELSE 0 
+				END)
+	--		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID
+			;
+        CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_REPEXT_PAGOS_REPARTO_FILE ESTADOS ACTUALIZADOS: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');   
+                                   
+		
+		INSERT INTO EXT.FINAL_REPEXT_FILE_TEST("TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+            ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+            ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+            ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ")
+        SELECT "TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+            ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+            ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+            ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ"
+        FROM :TEMP_FINAL_PAGOS_BASES_2_82_RT_MACB38P
+        WHERE 1 = (
+        	CASE 
+        		WHEN (IMPORTE_PAGO - IFNULL(SUMA_IMPORTE,0)) = 0 THEN 1
+    			WHEN (IMPORTE_PAGO - IFNULL(SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+    		ELSE 0 
+    		END);
+			
+			
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_FILE_TEST INSERTADOS: ' ||::ROWCOUNT, v_log_count, v_idproceso, 'info');				
+		---------------------------------------------------------------------------------------------------
+		
+		TEMP_FINAL_PAGOS_BASES_2_82_RT_MACB38P_DIF =
+			SELECT T.PERIODSEQ,T.POS_PRIN,T.TIPO_DOCUMENTO,T.DEPOSITSEQ,T.EARNINGCODEID,T.EARNINGGROUPID,T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0) AS DIF,
+				T.ORDERID,T.LINENUMBER,T.SUBLINENUMBER,T.EVENTTYPEID, T.COMPENSATIONDATE,
+				ROW_NUMBER() OVER(
+                      		PARTITION BY T.PERIODSEQ,T.POS_PRIN,T.TIPO_DOCUMENTO,T.DEPOSITSEQ,T.EARNINGCODEID,T.EARNINGGROUPID
+                      		--ORDER BY T.ORDERID
+                      ) AS RN_TRX
+			FROM :TEMP_FINAL_PAGOS_BASES_2_82_RT_MACB38P T
+			WHERE 1 = (CASE 
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 0
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+					ELSE 0 
+				END)
+		;
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_FINAL_PAGOS_BASES_2_82_RT_MACB38P_DIF: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+		UPDATE F
+    	SET F.IMPORTE = F.IMPORTE + T.DIF
+    	FROM EXT.FINAL_REPEXT_FILE_TEST F
+    	INNER JOIN :TEMP_FINAL_PAGOS_BASES_2_82_RT_MACB38P_DIF T  ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+		AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID
+		AND F.ORDERID = T.ORDERID AND F.LINENUMBER = T.LINENUMBER AND F.SUBLINENUMBER = T.SUBLINENUMBER AND F.EVENTTYPEID = T.EVENTTYPEID AND F.COMPENSATIONDATE = T.COMPENSATIONDATE
+		AND T.RN_TRX = 1
+		;
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_FILE_TEST IMPORTE_DIF: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		---------------------------------------------------------------------------------------------------
+		
+		
+		---------------------------------------------------------------------------------------------------
+		-- 2_82_RG_MACB38P
+		---------------------------------------------------------------------------------------------------
+		--BASES
+		IF i_tipo_reparto = 'CIERRE' THEN
+			TEMP_BASES_2_82_RG_MACB38P = SELECT * 
+	    		FROM EXT.FINAL_BASES_REPARTO_POLIZA_FILE B
+	    		WHERE PERIODSEQ = i_periodSeq
+	    		--RAMO EARNINGGROUPID = '03-RT'
+	    		--AND PRODUCTID LIKE '032%'
+	    		;
+	    	CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_BASES_2_82_RG_MACB38P: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+	    ELSE
+	    	TEMP_BASES_2_82_RG_MACB38P = SELECT * 
+    		FROM EXT.FINAL_BASES_REPARTO_POLIZA_FILE_NUEVA_BASE_REPARTO B
+    		WHERE PERIODSEQ = v_periodSeqAnterior
+    		--RAMO EARNINGGROUPID = '03-RT'
+    		--AND PRODUCTID LIKE '032%'
+    		;
+    		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_BASES_2_82_RG_MACB38P (BALANCE): ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+    	END IF;
+		
+		
+		-- --BASES_TOTAL_IMPORTE
+  --  	BASES_TOTAL_IMPORTE_2_82_RG_MACB38P = 
+		-- 	SELECT POSITIONSEQ, SUM(IMPORTE_COMISION) AS SUMA_IMPORTE
+		-- 	FROM :TEMP_BASES_2_82_RG_MACB38P
+		-- 	WHERE IMPORTE_COMISION <> 0
+		-- 	GROUP BY POSITIONSEQ;	
+
+			
+		--FINAL
+    	TEMP_FINAL_PAGOS_BASES_2_82_RG_MACB38P = SELECT P.PARTICIPANTSEQ,
+                                P.POSITIONSEQ,
+                                P.PERIODSEQ,
+                                :v_periodName AS PERIODO,
+                                P.POS_CALLIDUS POSITIONNAME,
+                                P.POS_PRIN,
+                                P.NIF,
+                                P.MANAGER_POS_PRIN,
+                                ORDERID,
+                                LINENUMBER,
+                                SUBLINENUMBER,
+                                EVENTTYPEID,
+                                PRODUCTID,
+                                CODIGO_POLIZA,
+                                COMPENSATIONDATE,
+                                ESTADO,
+                                P.PROGRAMA,
+                                P.TIPO_PAGO,
+                                P.DEPOSITO,
+                                P.DEPOSITSEQ,
+                                P.IMPORTE IMPORTE_PAGO,
+                                P.EARNINGCODEID,
+                                P.EARNINGGROUPID,
+                                P.TIPO_DOCUMENTO,
+                                P.TIPO_AGENTE,
+                                B.IMPORTE_COMISION AS IMPORTE,
+                                (SELECT SUM(IMPORTE_COMISION)
+                                	FROM :TEMP_BASES_2_82_RG_MACB38P S
+                                	WHERE S.POSITIONSEQ = B.POSITIONSEQ
+                                	AND S.PRODUCTID LIKE '%'||RIGHT(P.EARNINGCODEID,5)
+									AND S.EVENTTYPEID = 'Pago Comercial'
+                                ) AS SUMA_IMPORTE,
+                                NULL AS TIPO_REPARTO,
+                                0 AS NUM_TRAMO,
+                                NULL AS REPARTO_TIPO_BASE,
+                                NULL AS REPARTO_PORCENTAJE,
+                                POLIZA_FISICA,
+                                POLIZA_CORREGIDA,
+                                PRIMA_CORREGIDA,
+                                PRIMA_NETA,
+                                PRIMA_NETA_ANUAL,
+                                PRIMA_COMIS_S4 PRIMA_COMIS,
+                                NULL AS COEF_TIPO_BASE,
+                                NULL AS COEF_CORRECTOR,
+                                COD_AGENTE,
+                                P.TIPO_LIQ
+    					FROM :TEMP_PAGOS_DIRECTOS_RG P
+    					INNER JOIN :TEMP_BASES_2_82_RG_MACB38P B ON P.POSITIONSEQ = B.POSITIONSEQ
+    					--INNER JOIN :BASES_TOTAL_IMPORTE_2_82_RG_MACB38P BT ON BT.POSITIONSEQ = B.POSITIONSEQ
+    					WHERE ((B.POS_PRIN = P.POS_PRIN AND (IFNULL(B.CAMBIO_AG_INSP,'0') = '0')) OR B.MANAGER_POS_PRIN = P.POS_PRIN OR B.MAN_ACT_POS_PRIN = P.POS_PRIN)
+    					--TIPO AGENTE
+                        AND P.TIPO_AGENTE = '82'
+                        --RAMO
+    					AND B.PRODUCTID LIKE '%'||RIGHT(P.EARNINGCODEID,5)
+    					--PERMANENCIA
+    					AND B.EVENTTYPEID = 'Pago Comercial' AND B.CODIGO_POLIZA = P.EARNINGGROUPID AND ESTADO = SUBSTRING(P.EARNINGCODEID,1,3)
+    					--TIPO CONCEPTO
+    					AND B.IMPORTE_COMISION <> 0
+    					AND NOT EXISTS (
+    					    SELECT 1 
+    					    FROM EXT.FINAL_REPEXT_FILE_TEST X 
+    					    WHERE X.POS_PRIN       = P.POS_PRIN
+    					      AND X.PERIODSEQ      = P.PERIODSEQ
+    					      AND X.EARNINGCODEID  = P.EARNINGCODEID
+    					      AND X.EARNINGGROUPID = P.EARNINGGROUPID
+    					      AND X.TIPO_DOCUMENTO = P.TIPO_DOCUMENTO
+    					      AND X.ORDERID        = B.ORDERID
+    					      AND X.LINENUMBER     = B.LINENUMBER
+    					      AND X.SUBLINENUMBER  = B.SUBLINENUMBER
+    					      AND X.EVENTTYPEID    = B.EVENTTYPEID
+    					);
+    	CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_FINAL_PAGOS_BASES_2_82_RG_MACB38P: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');	
+    	
+    
+    	
+    	--LIQUIDACIÓN COMPLEMENTARIA
+		IF v_num_post > 1 AND i_tipo_reparto = 'CIERRE' THEN
+		
+			TEMP_PAGOS_DIRECTOS_2_82_RG_MACB38P_LC = SELECT SUM(IMPORTE) SUMA_PAGOS,PERIODSEQ,POS_PRIN,EARNINGGROUPID,EARNINGCODEID,DEPOSITO 
+				FROM :TEMP_FINAL_PAGOS_BASES_2_82_RG_MACB38P
+				WHERE TIPO_LIQ IN ('CIERRE','LIQ')
+				GROUP BY PERIODSEQ,POS_PRIN,EARNINGGROUPID,EARNINGCODEID,DEPOSITO;
+		
+			INSERT INTO EXT.FINAL_REPEXT_FILE_TEST("TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+		        ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+		        ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+		        ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ")
+		    SELECT "TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+		        ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE"*(-1),"TIPO_AGENTE","TIPO_DOCUMENTO",TF."EARNINGGROUPID"
+		        ,TF."EARNINGCODEID",TF.SUMA_IMPORTE,"DEPOSITSEQ",TF."DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+		        ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF",TF."POS_PRIN","POSITIONNAME","PERIODO",TF."PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ"
+		    FROM :TEMP_FINAL_PAGOS_BASES_2_82_RG_MACB38P TF 
+		    	INNER JOIN :TEMP_PAGOS_DIRECTOS_2_82_RG_MACB38P_LC TLC ON TF.PERIODSEQ = TLC.PERIODSEQ AND TF.POS_PRIN = TLC.POS_PRIN 
+		    	AND TF.EARNINGGROUPID = TLC.EARNINGGROUPID AND TF.EARNINGCODEID = TLC. EARNINGCODEID AND TF.DEPOSITO = TLC.DEPOSITO
+		    	AND 1 = (CASE WHEN SUMA_PAGOS <> SUMA_IMPORTE THEN 1 END); 
+		 END IF;
+    	-- FIN LIQUIDACIÓN COMPLEMENTARIA
+    	
+    	UPDATE F
+    	SET ESTADO_REPARTO = CASE 
+    		WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 2
+			WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 3
+			ELSE 4 
+		END
+		FROM EXT.FINAL_REPEXT_PAGOS_FILE_TEST F
+		INNER JOIN :TEMP_FINAL_PAGOS_BASES_2_82_RG_MACB38P T ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+		AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID;
+		
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_PAGOS_FILE_TEST ESTADOS ACTUALIZADOS: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+		
+		UPDATE F
+            SET ESTADO_REPARTO = CASE 
+    				WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 2
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 3
+					ELSE 4 
+				END --REPARTO CORRECTO
+			FROM :TEMP_REPEXT_PAGOS_REPARTO_FILE F
+			INNER JOIN :TEMP_FINAL_PAGOS_BASES_2_82_RG_MACB38P T ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+			AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+			WHERE 1 = (CASE 
+    				WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 1
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+					ELSE 0 
+				END)
+	--		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID
+			;
+        CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_REPEXT_PAGOS_REPARTO_FILE ESTADOS ACTUALIZADOS: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');   
+                                   
+		
+		INSERT INTO EXT.FINAL_REPEXT_FILE_TEST("TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+            ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+            ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+            ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ")
+        SELECT "TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+            ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+            ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+            ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ"
+        FROM :TEMP_FINAL_PAGOS_BASES_2_82_RG_MACB38P
+        WHERE 1 = (
+        	CASE 
+        		WHEN (IMPORTE_PAGO - IFNULL(SUMA_IMPORTE,0)) = 0 THEN 1
+    			WHEN (IMPORTE_PAGO - IFNULL(SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+    		ELSE 0 
+    		END);
+        
+ 		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_FILE_TEST INSERTADOS: ' ||::ROWCOUNT, v_log_count, v_idproceso, 'info');				
+		---------------------------------------------------------------------------------------------------
+		
+		TEMP_FINAL_PAGOS_BASES_2_82_RG_MACB38P_DIF =
+			SELECT T.PERIODSEQ,T.POS_PRIN,T.TIPO_DOCUMENTO,T.DEPOSITSEQ,T.EARNINGCODEID,T.EARNINGGROUPID,T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0) AS DIF,
+					T.ORDERID,T.LINENUMBER,T.SUBLINENUMBER,T.EVENTTYPEID, T.COMPENSATIONDATE,
+				ROW_NUMBER() OVER(
+                      		PARTITION BY T.PERIODSEQ,T.POS_PRIN,T.TIPO_DOCUMENTO,T.DEPOSITSEQ,T.EARNINGCODEID,T.EARNINGGROUPID
+                      		--ORDER BY T.ORDERID
+                      ) AS RN_TRX
+			FROM :TEMP_FINAL_PAGOS_BASES_2_82_RG_MACB38P T
+			WHERE 1 = (CASE 
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 0
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+					ELSE 0 
+				END)
+		;
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_FINAL_PAGOS_BASES_2_82_RG_MACB38P_DIF: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+		UPDATE F
+    	SET F.IMPORTE = F.IMPORTE + T.DIF
+    	FROM EXT.FINAL_REPEXT_FILE_TEST F
+    	INNER JOIN :TEMP_FINAL_PAGOS_BASES_2_82_RG_MACB38P_DIF T  ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+		AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID
+		AND F.ORDERID = T.ORDERID AND F.LINENUMBER = T.LINENUMBER AND F.SUBLINENUMBER = T.SUBLINENUMBER AND F.EVENTTYPEID = T.EVENTTYPEID AND F.COMPENSATIONDATE = T.COMPENSATIONDATE
+		AND T.RN_TRX = 1
+		;
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_FILE_TEST IMPORTE_DIF: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		---------------------------------------------------------------------------------------------------
+       
+        
+        
+        ---------------------------------------------------------------------------------------------------
+		-- 2_82_RT
+		---------------------------------------------------------------------------------------------------
+		
+		--BASES
+		IF i_tipo_reparto = 'CIERRE' THEN
+			TEMP_BASES_2_82_RT = SELECT * 
+	    		FROM EXT.FINAL_BASES_REPARTO_POLIZA_FILE B
+	    		WHERE PERIODSEQ = i_periodSeq
+	    		--RAMO EARNINGGROUPID = '03-RT'
+	    		--AND PRODUCTID LIKE '032%'
+	    		;
+	    	CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_BASES_2_82_RT: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		ELSE
+			TEMP_BASES_2_82_RT = SELECT * 
+    		FROM EXT.FINAL_BASES_REPARTO_POLIZA_FILE_NUEVA_BASE_REPARTO B
+    		WHERE PERIODSEQ = v_periodSeqAnterior
+    		--RAMO EARNINGGROUPID = '03-RT'
+    		--AND PRODUCTID LIKE '032%'
+    		;
+    		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_BASES_2_82_RT (BALANCE): ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+    	END IF;
+			
+		--BASES_TOTAL_IMPORTE
+    	BASES_TOTAL_IMPORTE_2_82_RT = 
+			SELECT POSITIONSEQ, SUM(DIF_RESP) AS SUMA_IMPORTE
+			FROM :TEMP_BASES_2_82_RT
+			WHERE DIF_RESP <> 0
+			GROUP BY POSITIONSEQ;
+			
+		--FINAL
+    	TEMP_FINAL_PAGOS_BASES_2_82_RT = SELECT P.PARTICIPANTSEQ,
+                                P.POSITIONSEQ,
+                                P.PERIODSEQ,
+                                :v_periodName AS PERIODO,
+                                P.POS_CALLIDUS POSITIONNAME,
+                                P.POS_PRIN,
+                                P.NIF,
+                                P.MANAGER_POS_PRIN,
+                                ORDERID,
+                                LINENUMBER,
+                                SUBLINENUMBER,
+                                EVENTTYPEID,
+                                PRODUCTID,
+                                CODIGO_POLIZA,
+                                COMPENSATIONDATE,
+                                ESTADO,
+                                P.PROGRAMA,
+                                P.TIPO_PAGO,
+                                P.DEPOSITO,
+                                P.DEPOSITSEQ,
+                                P.IMPORTE IMPORTE_PAGO,
+                                P.EARNINGCODEID,
+                                P.EARNINGGROUPID,
+                                P.TIPO_DOCUMENTO,
+                                P.TIPO_AGENTE,
+                                B.DIF_RESP AS IMPORTE,
+                                BT.SUMA_IMPORTE AS SUMA_IMPORTE,
+                                NULL AS TIPO_REPARTO,
+                                0 AS NUM_TRAMO,
+                                NULL AS REPARTO_TIPO_BASE,
+                                NULL AS REPARTO_PORCENTAJE,
+                                POLIZA_FISICA,
+                                POLIZA_CORREGIDA,
+                                PRIMA_CORREGIDA,
+                                PRIMA_NETA,
+                                PRIMA_NETA_ANUAL,
+                                PRIMA_COMIS_S4 PRIMA_COMIS,
+                                NULL AS COEF_TIPO_BASE,
+                                NULL AS COEF_CORRECTOR,
+                                COD_AGENTE,
+                                P.TIPO_LIQ
+    					FROM :TEMP_PAGOS_DIRECTOS_RT P
+    					INNER JOIN :TEMP_BASES_2_82_RT B ON P.POSITIONSEQ = B.POSITIONSEQ
+    					INNER JOIN :BASES_TOTAL_IMPORTE_2_82_RT BT ON BT.POSITIONSEQ = B.POSITIONSEQ
+    					--POSITION
+    					WHERE ((B.POS_PRIN = P.POS_PRIN AND (IFNULL(B.CAMBIO_AG_INSP,'0') = '0')) OR B.MANAGER_POS_PRIN = P.POS_PRIN OR B.MAN_ACT_POS_PRIN = P.POS_PRIN)
+    					--TIPO AGENTE
+                        AND P.TIPO_AGENTE = '82'
+                        --RAMO
+    					AND B.PRODUCTID LIKE '%'||RIGHT(P.EARNINGCODEID,5)||'%'
+    					--PERMANENCIA
+    					AND B.EVENTTYPEID = 'Pago Comercial' AND B.CODIGO_POLIZA = P.EARNINGGROUPID AND ESTADO = SUBSTRING(P.EARNINGCODEID,1,3)
+    					--TIPO CONCEPTO
+    					AND B.DIF_RESP <> 0
+    					AND NOT EXISTS (
+    					    SELECT 1 
+    					    FROM EXT.FINAL_REPEXT_FILE_TEST X 
+    					    WHERE X.POS_PRIN       = P.POS_PRIN
+    					      AND X.PERIODSEQ      = P.PERIODSEQ
+    					      AND X.EARNINGCODEID  = P.EARNINGCODEID
+    					      AND X.EARNINGGROUPID = P.EARNINGGROUPID
+    					      AND X.TIPO_DOCUMENTO = P.TIPO_DOCUMENTO
+    					      AND X.ORDERID        = B.ORDERID
+    					      AND X.LINENUMBER     = B.LINENUMBER
+    					      AND X.SUBLINENUMBER  = B.SUBLINENUMBER
+    					      AND X.EVENTTYPEID    = B.EVENTTYPEID
+    					);
+    	CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_FINAL_PAGOS_BASES_2_82_RT: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');	
+    	
+    	--SELECT 'TEMP_FINAL_PAGOS_BASES_2_82_RT',* FROM :TEMP_FINAL_PAGOS_BASES_2_82_RT;
+    	
+    	--LIQUIDACIÓN COMPLEMENTARIA
+		IF v_num_post > 1 AND i_tipo_reparto = 'CIERRE' THEN
+		
+			TEMP_PAGOS_DIRECTOS_2_82_RT_LC = SELECT SUM(IMPORTE) SUMA_PAGOS,PERIODSEQ,POS_PRIN,EARNINGGROUPID,EARNINGCODEID,DEPOSITO 
+				FROM :TEMP_FINAL_PAGOS_BASES_2_82_RT
+				WHERE TIPO_LIQ IN ('CIERRE','LIQ')
+				GROUP BY PERIODSEQ,POS_PRIN,EARNINGGROUPID,EARNINGCODEID,DEPOSITO;
+		
+			INSERT INTO EXT.FINAL_REPEXT_FILE_TEST("TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+		        ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+		        ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+		        ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ")
+		    SELECT "TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+		        ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE"*(-1),"TIPO_AGENTE","TIPO_DOCUMENTO",TF."EARNINGGROUPID"
+		        ,TF."EARNINGCODEID",TF.SUMA_IMPORTE,"DEPOSITSEQ",TF."DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+		        ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF",TF."POS_PRIN","POSITIONNAME","PERIODO",TF."PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ"
+		    FROM :TEMP_FINAL_PAGOS_BASES_2_82_RT TF 
+		    	INNER JOIN :TEMP_PAGOS_DIRECTOS_2_82_RT_LC TLC ON TF.PERIODSEQ = TLC.PERIODSEQ AND TF.POS_PRIN = TLC.POS_PRIN 
+		    	AND TF.EARNINGGROUPID = TLC.EARNINGGROUPID AND TF.EARNINGCODEID = TLC. EARNINGCODEID AND TF.DEPOSITO = TLC.DEPOSITO
+		    	AND 1 = (CASE WHEN SUMA_PAGOS <> SUMA_IMPORTE THEN 1 END); 
+		 END IF;
+    	-- FIN LIQUIDACIÓN COMPLEMENTARIA
+    	
+    	UPDATE F
+    	SET ESTADO_REPARTO = CASE 
+    		WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 2
+			WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 3
+			ELSE 4 
+		END
+		FROM EXT.FINAL_REPEXT_PAGOS_FILE_TEST F
+		INNER JOIN :TEMP_FINAL_PAGOS_BASES_2_82_RT T ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+		AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID;
+		
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_PAGOS_FILE_TEST ESTADOS ACTUALIZADOS: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+		
+		UPDATE F
+            SET ESTADO_REPARTO = CASE 
+    				WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 2
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 3
+					ELSE 4 
+				END --REPARTO CORRECTO
+			FROM :TEMP_REPEXT_PAGOS_REPARTO_FILE F
+			INNER JOIN :TEMP_FINAL_PAGOS_BASES_2_82_RT T ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+			AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+			WHERE 1 = (CASE 
+    				WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 1
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+					ELSE 0 
+				END)
+	--		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID
+			;
+        CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_REPEXT_PAGOS_REPARTO_FILE ESTADOS ACTUALIZADOS: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');   
+                                   
+		
+		INSERT INTO EXT.FINAL_REPEXT_FILE_TEST("TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+            ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+            ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+            ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ")
+        SELECT "TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+            ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+            ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+            ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ"
+        FROM :TEMP_FINAL_PAGOS_BASES_2_82_RT
+        WHERE 1 = (
+        	CASE 
+        		WHEN (IMPORTE_PAGO - IFNULL(SUMA_IMPORTE,0)) = 0 THEN 1
+    			WHEN (IMPORTE_PAGO - IFNULL(SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+    		ELSE 0 
+    		END);
+
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_FILE_TEST INSERTADOS: ' ||::ROWCOUNT, v_log_count, v_idproceso, 'info');				
+		---------------------------------------------------------------------------------------------------
+		
+		TEMP_FINAL_PAGOS_BASES_2_82_RT_DIF =
+			SELECT T.PERIODSEQ,T.POS_PRIN,T.TIPO_DOCUMENTO,T.DEPOSITSEQ,T.EARNINGCODEID,T.EARNINGGROUPID,T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0) AS DIF,
+					T.ORDERID,T.LINENUMBER,T.SUBLINENUMBER,T.EVENTTYPEID, T.COMPENSATIONDATE,
+				ROW_NUMBER() OVER(
+                      		PARTITION BY T.PERIODSEQ,T.POS_PRIN,T.TIPO_DOCUMENTO,T.DEPOSITSEQ,T.EARNINGCODEID,T.EARNINGGROUPID
+                      		--ORDER BY T.ORDERID
+                      ) AS RN_TRX
+			FROM :TEMP_FINAL_PAGOS_BASES_2_82_RT T
+			WHERE 1 = (CASE 
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 0
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+					ELSE 0 
+				END)
+		;
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_FINAL_PAGOS_BASES_2_82_RT_DIF: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+		UPDATE F
+    	SET F.IMPORTE = F.IMPORTE + T.DIF
+    	FROM EXT.FINAL_REPEXT_FILE_TEST F
+    	INNER JOIN :TEMP_FINAL_PAGOS_BASES_2_82_RT_DIF T  ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+		AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID
+		AND F.ORDERID = T.ORDERID AND F.LINENUMBER = T.LINENUMBER AND F.SUBLINENUMBER = T.SUBLINENUMBER AND F.EVENTTYPEID = T.EVENTTYPEID AND F.COMPENSATIONDATE = T.COMPENSATIONDATE
+		AND T.RN_TRX = 1
+		;
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_FILE_TEST IMPORTE_DIF: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		---------------------------------------------------------------------------------------------------
+		
+		
+		---------------------------------------------------------------------------------------------------
+		-- 2_82_RG
+		---------------------------------------------------------------------------------------------------
+		--BASES
+		IF i_tipo_reparto = 'CIERRE' THEN
+			TEMP_BASES_2_82_RG = SELECT * 
+	    		FROM EXT.FINAL_BASES_REPARTO_POLIZA_FILE B
+	    		WHERE PERIODSEQ = i_periodSeq
+	    		--RAMO EARNINGGROUPID = '03-RT'
+	    		--AND PRODUCTID LIKE '032%'
+	    		;
+	    	CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_BASES_2_82_RG: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+	    ELSE
+	    	TEMP_BASES_2_82_RG = SELECT * 
+	    		FROM EXT.FINAL_BASES_REPARTO_POLIZA_FILE_NUEVA_BASE_REPARTO B
+	    		WHERE PERIODSEQ = v_periodSeqAnterior
+	    		--RAMO EARNINGGROUPID = '03-RT'
+	    		--AND PRODUCTID LIKE '032%'
+	    		;
+	    	CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_BASES_2_82_RG (BALANCE): ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+	    END IF;
+			
+			
+		--BASES_TOTAL_IMPORTE
+    	BASES_TOTAL_IMPORTE_2_82_RG = 
+			SELECT POSITIONSEQ, SUM(DIF_RESP) AS SUMA_IMPORTE
+			FROM :TEMP_BASES_2_82_RG
+			WHERE DIF_RESP <> 0
+			GROUP BY POSITIONSEQ;
+			
+		--FINAL
+    	TEMP_FINAL_PAGOS_BASES_2_82_RG = SELECT P.PARTICIPANTSEQ,
+                                P.POSITIONSEQ,
+                                P.PERIODSEQ,
+                                :v_periodName AS PERIODO,
+                                P.POS_CALLIDUS POSITIONNAME,
+                                P.POS_PRIN,
+                                P.NIF,
+                                P.MANAGER_POS_PRIN,
+                                ORDERID,
+                                LINENUMBER,
+                                SUBLINENUMBER,
+                                EVENTTYPEID,
+                                PRODUCTID,
+                                CODIGO_POLIZA,
+                                COMPENSATIONDATE,
+                                ESTADO,
+                                P.PROGRAMA,
+                                P.TIPO_PAGO,
+                                P.DEPOSITO,
+                                P.DEPOSITSEQ,
+                                P.IMPORTE IMPORTE_PAGO,
+                                P.EARNINGCODEID,
+                                P.EARNINGGROUPID,
+                                P.TIPO_DOCUMENTO,
+                                P.TIPO_AGENTE,
+                                B.DIF_RESP AS IMPORTE,
+                                BT.SUMA_IMPORTE AS SUMA_IMPORTE,
+                                NULL AS TIPO_REPARTO,
+                                0 AS NUM_TRAMO,
+                                NULL AS REPARTO_TIPO_BASE,
+                                NULL AS REPARTO_PORCENTAJE,
+                                POLIZA_FISICA,
+                                POLIZA_CORREGIDA,
+                                PRIMA_CORREGIDA,
+                                PRIMA_NETA,
+                                PRIMA_NETA_ANUAL,
+                                PRIMA_COMIS_S4 PRIMA_COMIS,
+                                NULL AS COEF_TIPO_BASE,
+                                NULL AS COEF_CORRECTOR,
+                                COD_AGENTE,
+                                P.TIPO_LIQ
+    					FROM :TEMP_PAGOS_DIRECTOS_RG P
+    					INNER JOIN :TEMP_BASES_2_82_RG B ON P.POSITIONSEQ = B.POSITIONSEQ
+    					INNER JOIN :BASES_TOTAL_IMPORTE_2_82_RG BT ON BT.POSITIONSEQ = B.POSITIONSEQ
+    					WHERE ((B.POS_PRIN = P.POS_PRIN AND (IFNULL(B.CAMBIO_AG_INSP,'0') = '0')) OR B.MANAGER_POS_PRIN = P.POS_PRIN OR B.MAN_ACT_POS_PRIN = P.POS_PRIN)
+    					--TIPO AGENTE
+                        AND P.TIPO_AGENTE = '82'
+                        --RAMO
+    					AND B.PRODUCTID LIKE '%'||RIGHT(P.EARNINGCODEID,5)||'%'
+    					--PERMANENCIA
+    					AND B.EVENTTYPEID = 'Pago Comercial' AND B.CODIGO_POLIZA = P.EARNINGGROUPID AND ESTADO = SUBSTRING(P.EARNINGCODEID,1,3)
+    					--TIPO CONCEPTO
+    					AND B.DIF_RESP <> 0
+    					AND NOT EXISTS (
+    					    SELECT 1 
+    					    FROM EXT.FINAL_REPEXT_FILE_TEST X 
+    					    WHERE X.POS_PRIN       = P.POS_PRIN
+    					      AND X.PERIODSEQ      = P.PERIODSEQ
+    					      AND X.EARNINGCODEID  = P.EARNINGCODEID
+    					      AND X.EARNINGGROUPID = P.EARNINGGROUPID
+    					      AND X.TIPO_DOCUMENTO = P.TIPO_DOCUMENTO
+    					      AND X.ORDERID        = B.ORDERID
+    					      AND X.LINENUMBER     = B.LINENUMBER
+    					      AND X.SUBLINENUMBER  = B.SUBLINENUMBER
+    					      AND X.EVENTTYPEID    = B.EVENTTYPEID
+    					);
+    	CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_FINAL_PAGOS_BASES_2_82_RG: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');	
+    	
+    	
+    	
+    	--LIQUIDACIÓN COMPLEMENTARIA
+		IF v_num_post > 1 AND i_tipo_reparto = 'CIERRE' THEN
+		
+			TEMP_PAGOS_DIRECTOS_2_82_RG_LC = SELECT SUM(IMPORTE) SUMA_PAGOS,PERIODSEQ,POS_PRIN,EARNINGGROUPID,EARNINGCODEID,DEPOSITO 
+				FROM :TEMP_FINAL_PAGOS_BASES_2_82_RG
+				WHERE TIPO_LIQ IN ('CIERRE','LIQ')
+				GROUP BY PERIODSEQ,POS_PRIN,EARNINGGROUPID,EARNINGCODEID,DEPOSITO;
+		
+			INSERT INTO EXT.FINAL_REPEXT_FILE_TEST("TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+		        ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+		        ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+		        ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ")
+		    SELECT "TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+		        ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE"*(-1),"TIPO_AGENTE","TIPO_DOCUMENTO",TF."EARNINGGROUPID"
+		        ,TF."EARNINGCODEID",TF.SUMA_IMPORTE,"DEPOSITSEQ",TF."DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+		        ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF",TF."POS_PRIN","POSITIONNAME","PERIODO",TF."PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ"
+		    FROM :TEMP_FINAL_PAGOS_BASES_2_82_RG TF 
+		    	INNER JOIN :TEMP_PAGOS_DIRECTOS_2_82_RG_LC TLC ON TF.PERIODSEQ = TLC.PERIODSEQ AND TF.POS_PRIN = TLC.POS_PRIN 
+		    	AND TF.EARNINGGROUPID = TLC.EARNINGGROUPID AND TF.EARNINGCODEID = TLC. EARNINGCODEID AND TF.DEPOSITO = TLC.DEPOSITO
+		    	AND 1 = (CASE WHEN SUMA_PAGOS <> SUMA_IMPORTE THEN 1 END); 
+		 END IF;
+    	-- FIN LIQUIDACIÓN COMPLEMENTARIA
+    	
+    	UPDATE F
+    	SET ESTADO_REPARTO = CASE 
+    		WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 2
+			WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 3
+			ELSE 4 
+		END
+		FROM EXT.FINAL_REPEXT_PAGOS_FILE_TEST F
+		INNER JOIN :TEMP_FINAL_PAGOS_BASES_2_82_RG T ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+		AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID;
+		
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_PAGOS_FILE_TEST ESTADOS ACTUALIZADOS: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+		
+		UPDATE F
+            SET ESTADO_REPARTO = CASE 
+    				WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 2
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 3
+					ELSE 4 
+				END --REPARTO CORRECTO
+			FROM :TEMP_REPEXT_PAGOS_REPARTO_FILE F
+			INNER JOIN :TEMP_FINAL_PAGOS_BASES_2_82_RG T ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+			AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+			WHERE 1 = (CASE 
+    				WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 1
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+					ELSE 0 
+				END)
+	--		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID
+			;
+        CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_REPEXT_PAGOS_REPARTO_FILE ESTADOS ACTUALIZADOS: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');   
+                                   
+		
+		INSERT INTO EXT.FINAL_REPEXT_FILE_TEST("TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+            ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+            ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+            ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ")
+        SELECT "TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+            ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+            ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+            ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ"
+        FROM :TEMP_FINAL_PAGOS_BASES_2_82_RG
+        WHERE 1 = (
+        	CASE 
+        		WHEN (IMPORTE_PAGO - IFNULL(SUMA_IMPORTE,0)) = 0 THEN 1
+    			WHEN (IMPORTE_PAGO - IFNULL(SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+    		ELSE 0 
+    		END);
+
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_FILE_TEST INSERTADOS: ' ||::ROWCOUNT, v_log_count, v_idproceso, 'info');				
+		---------------------------------------------------------------------------------------------------
+		
+		TEMP_FINAL_PAGOS_BASES_2_82_RG_DIF =
+			SELECT T.PERIODSEQ,T.POS_PRIN,T.TIPO_DOCUMENTO,T.DEPOSITSEQ,T.EARNINGCODEID,T.EARNINGGROUPID,T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0) AS DIF,
+					T.ORDERID,T.LINENUMBER,T.SUBLINENUMBER,T.EVENTTYPEID, T.COMPENSATIONDATE,
+				ROW_NUMBER() OVER(
+                      		PARTITION BY T.PERIODSEQ,T.POS_PRIN,T.TIPO_DOCUMENTO,T.DEPOSITSEQ,T.EARNINGCODEID,T.EARNINGGROUPID
+                      		--ORDER BY T.ORDERID
+                      ) AS RN_TRX
+			FROM :TEMP_FINAL_PAGOS_BASES_2_82_RG T
+			WHERE 1 = (CASE 
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 0
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+					ELSE 0 
+				END)
+		;
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_FINAL_PAGOS_BASES_2_82_RG_DIF: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+		UPDATE F
+    	SET F.IMPORTE = F.IMPORTE + T.DIF
+    	FROM EXT.FINAL_REPEXT_FILE_TEST F
+    	INNER JOIN :TEMP_FINAL_PAGOS_BASES_2_82_RG_DIF T  ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+		AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID
+		AND F.ORDERID = T.ORDERID AND F.LINENUMBER = T.LINENUMBER AND F.SUBLINENUMBER = T.SUBLINENUMBER AND F.EVENTTYPEID = T.EVENTTYPEID AND F.COMPENSATIONDATE = T.COMPENSATIONDATE
+		AND T.RN_TRX = 1
+		;
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_FILE_TEST IMPORTE_DIF: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		---------------------------------------------------------------------------------------------------
+		        
+        
+       
+        ---------------------------------------------------------------------------------------------------
+		-- 2_MAC38P_RT
+		---------------------------------------------------------------------------------------------------
+		
+		--BASES
+		IF i_tipo_reparto = 'CIERRE' THEN
+			TEMP_BASES_2_MAC38P_RT = SELECT * 
+	    		FROM EXT.FINAL_BASES_REPARTO_POLIZA_FILE B
+	    		WHERE PERIODSEQ = i_periodSeq
+	    		--RAMO EARNINGGROUPID = '03-RT'
+	    		--AND PRODUCTID LIKE '032%'
+	    		;
+	    		
+	    	CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_BASES_2_MAC38P_RT: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+	    ELSE
+	    	TEMP_BASES_2_MAC38P_RT = SELECT * 
+    		FROM EXT.FINAL_BASES_REPARTO_POLIZA_FILE_NUEVA_BASE_REPARTO B
+    		WHERE PERIODSEQ = v_periodSeqAnterior
+    		--RAMO EARNINGGROUPID = '03-RT'
+    		--AND PRODUCTID LIKE '032%'
+    		;
+    		
+    		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_BASES_2_MAC38P_RT (BALANCE): ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+    	END IF;
+			
+		-- --BASES_TOTAL_IMPORTE
+  --  	BASES_TOTAL_IMPORTE_2_MAC38P_RT = 
+		-- 	SELECT POSITIONSEQ, SUM(IMPORTE_COMISION) AS SUMA_IMPORTE
+		-- 	FROM :TEMP_BASES_2_MAC38P_RT
+		-- 	WHERE IMPORTE_COMISION <> 0
+		-- 	GROUP BY POSITIONSEQ;
+			
+			
+		--FINAL
+    	TEMP_FINAL_PAGOS_BASES_2_MAC38P_RT = SELECT P.PARTICIPANTSEQ,
+                                P.POSITIONSEQ,
+                                P.PERIODSEQ,
+                                :v_periodName AS PERIODO,
+                                P.POS_CALLIDUS POSITIONNAME,
+                                P.POS_PRIN,
+                                P.NIF,
+                                P.MANAGER_POS_PRIN,
+                                ORDERID,
+                                LINENUMBER,
+                                SUBLINENUMBER,
+                                EVENTTYPEID,
+                                PRODUCTID,
+                                CODIGO_POLIZA,
+                                COMPENSATIONDATE,
+                                ESTADO,
+                                P.PROGRAMA,
+                                P.TIPO_PAGO,
+                                P.DEPOSITO,
+                                P.DEPOSITSEQ,
+                                P.IMPORTE IMPORTE_PAGO,
+                                P.EARNINGCODEID,
+                                P.EARNINGGROUPID,
+                                P.TIPO_DOCUMENTO,
+                                P.TIPO_AGENTE,
+                                B.IMPORTE_COMISION AS IMPORTE,
+                                (SELECT SUM(IMPORTE_COMISION)
+                                	FROM :TEMP_BASES_2_MAC38P_RT S
+                                	WHERE S.POSITIONSEQ = B.POSITIONSEQ
+                                	AND S.PRODUCTID LIKE '%'||RIGHT(P.EARNINGCODEID,5)
+									AND S.EVENTTYPEID = 'Pago Comercial'
+                                ) AS SUMA_IMPORTE,
+                                NULL AS TIPO_REPARTO,
+                                0 AS NUM_TRAMO,
+                                NULL AS REPARTO_TIPO_BASE,
+                                NULL AS REPARTO_PORCENTAJE,
+                                POLIZA_FISICA,
+                                POLIZA_CORREGIDA,
+                                PRIMA_CORREGIDA,
+                                PRIMA_NETA,
+                                PRIMA_NETA_ANUAL,
+                                PRIMA_COMIS_S4 PRIMA_COMIS,
+                                NULL AS COEF_TIPO_BASE,
+                                NULL AS COEF_CORRECTOR,
+                                COD_AGENTE,
+                                P.TIPO_LIQ
+    					FROM :TEMP_PAGOS_DIRECTOS_RT P
+    					INNER JOIN :TEMP_BASES_2_MAC38P_RT B ON P.POSITIONSEQ = B.POSITIONSEQ
+    					--INNER JOIN :BASES_TOTAL_IMPORTE_2_MAC38P_RT BT ON BT.POSITIONSEQ = B.POSITIONSEQ
+    					--POSITION
+    					WHERE ((B.POS_PRIN = P.POS_PRIN AND (IFNULL(B.CAMBIO_AG_INSP,'0') = '0')) OR B.MANAGER_POS_PRIN = P.POS_PRIN OR B.CAPTADOR_POS_PRIN = P.POS_PRIN)
+    					--TIPO AGENTE
+                        AND P.TIPO_AGENTE != '82'
+                        --RAMO
+    					AND B.PRODUCTID LIKE '%'||RIGHT(P.EARNINGCODEID,5)
+    					--PERMANENCIA
+    					AND B.EVENTTYPEID = 'Pago Comercial' AND B.CODIGO_POLIZA = P.EARNINGGROUPID AND ESTADO = SUBSTRING(P.EARNINGCODEID,1,3)
+    					--TIPO CONCEPTO
+    					AND B.IMPORTE_COMISION <> 0
+    					AND NOT EXISTS (
+    					    SELECT 1 
+    					    FROM EXT.FINAL_REPEXT_FILE_TEST X 
+    					    WHERE X.POS_PRIN       = P.POS_PRIN
+    					      AND X.PERIODSEQ      = P.PERIODSEQ
+    					      AND X.EARNINGCODEID  = P.EARNINGCODEID
+    					      AND X.EARNINGGROUPID = P.EARNINGGROUPID
+    					      AND X.TIPO_DOCUMENTO = P.TIPO_DOCUMENTO
+    					      AND X.ORDERID        = B.ORDERID
+    					      AND X.LINENUMBER     = B.LINENUMBER
+    					      AND X.SUBLINENUMBER  = B.SUBLINENUMBER
+    					      AND X.EVENTTYPEID    = B.EVENTTYPEID
+    					);
+    					
+    	CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_FINAL_PAGOS_BASES_2_MAC38P_RT: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');	
+    	
+    	--SELECT 'TEMP_FINAL_PAGOS_BASES_2_MAC38P_RT',* FROM :TEMP_FINAL_PAGOS_BASES_2_MAC38P_RT;
+    	
+    	--LIQUIDACIÓN COMPLEMENTARIA
+		IF v_num_post > 1 AND i_tipo_reparto = 'CIERRE' THEN
+		
+			TEMP_PAGOS_DIRECTOS_2_MAC38P_RT_LC = SELECT SUM(IMPORTE) SUMA_PAGOS,PERIODSEQ,POS_PRIN,EARNINGGROUPID,EARNINGCODEID,DEPOSITO 
+				FROM :TEMP_FINAL_PAGOS_BASES_2_MAC38P_RT
+				WHERE TIPO_LIQ IN ('CIERRE','LIQ')
+				GROUP BY PERIODSEQ,POS_PRIN,EARNINGGROUPID,EARNINGCODEID,DEPOSITO;
+		
+			INSERT INTO EXT.FINAL_REPEXT_FILE_TEST("TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+		        ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+		        ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+		        ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ")
+		    SELECT "TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+		        ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE"*(-1),"TIPO_AGENTE","TIPO_DOCUMENTO",TF."EARNINGGROUPID"
+		        ,TF."EARNINGCODEID",TF.SUMA_IMPORTE,"DEPOSITSEQ",TF."DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+		        ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF",TF."POS_PRIN","POSITIONNAME","PERIODO",TF."PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ"
+		    FROM :TEMP_FINAL_PAGOS_BASES_2_MAC38P_RT TF 
+		    	INNER JOIN :TEMP_PAGOS_DIRECTOS_2_MAC38P_RT_LC TLC ON TF.PERIODSEQ = TLC.PERIODSEQ AND TF.POS_PRIN = TLC.POS_PRIN 
+		    	AND TF.EARNINGGROUPID = TLC.EARNINGGROUPID AND TF.EARNINGCODEID = TLC. EARNINGCODEID AND TF.DEPOSITO = TLC.DEPOSITO
+		    	AND 1 = (CASE WHEN SUMA_PAGOS <> SUMA_IMPORTE THEN 1 END); 
+		 END IF;
+    	-- FIN LIQUIDACIÓN COMPLEMENTARIA
+    	
+    	UPDATE F
+    	SET ESTADO_REPARTO = CASE 
+    		WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 2
+			WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 3
+			ELSE 4 
+		END
+		FROM EXT.FINAL_REPEXT_PAGOS_FILE_TEST F
+		INNER JOIN :TEMP_FINAL_PAGOS_BASES_2_MAC38P_RT T ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+		AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID;
+		
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_PAGOS_FILE_TEST ESTADOS ACTUALIZADOS: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+		
+		UPDATE F
+            SET ESTADO_REPARTO = CASE 
+    				WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 2
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 3
+					ELSE 4 
+				END --REPARTO CORRECTO
+			FROM :TEMP_REPEXT_PAGOS_REPARTO_FILE F
+			INNER JOIN :TEMP_FINAL_PAGOS_BASES_2_MAC38P_RT T ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+			AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+			WHERE 1 = (CASE 
+    				WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 1
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+					ELSE 0 
+				END)
+	--		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID
+			;
+        CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_REPEXT_PAGOS_REPARTO_FILE ESTADOS ACTUALIZADOS: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');   
+                                   
+		
+		INSERT INTO EXT.FINAL_REPEXT_FILE_TEST("TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+            ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+            ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+            ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ")
+        SELECT "TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+            ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+            ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+            ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ"
+        FROM :TEMP_FINAL_PAGOS_BASES_2_MAC38P_RT
+        WHERE 1 = (
+        	CASE 
+        		WHEN (IMPORTE_PAGO - IFNULL(SUMA_IMPORTE,0)) = 0 THEN 1
+    			WHEN (IMPORTE_PAGO - IFNULL(SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+    		ELSE 0 
+    		END);
+
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_FILE_TEST INSERTADOS: ' ||::ROWCOUNT, v_log_count, v_idproceso, 'info');				
+		---------------------------------------------------------------------------------------------------
+		
+		TEMP_FINAL_PAGOS_BASES_2_MAC38P_RT_DIF =
+			SELECT T.PERIODSEQ,T.POS_PRIN,T.TIPO_DOCUMENTO,T.DEPOSITSEQ,T.EARNINGCODEID,T.EARNINGGROUPID,T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0) AS DIF,
+					T.ORDERID,T.LINENUMBER,T.SUBLINENUMBER,T.EVENTTYPEID, T.COMPENSATIONDATE,
+				ROW_NUMBER() OVER(
+                      		PARTITION BY T.PERIODSEQ,T.POS_PRIN,T.TIPO_DOCUMENTO,T.DEPOSITSEQ,T.EARNINGCODEID,T.EARNINGGROUPID
+                      		--ORDER BY T.ORDERID
+                      ) AS RN_TRX
+			FROM :TEMP_FINAL_PAGOS_BASES_2_MAC38P_RT T
+			WHERE 1 = (CASE 
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 0
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+					ELSE 0 
+				END)
+		;
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_FINAL_PAGOS_BASES_2_MAC38P_RT_DIF: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+		UPDATE F
+    	SET F.IMPORTE = F.IMPORTE + T.DIF
+    	FROM EXT.FINAL_REPEXT_FILE_TEST F
+    	INNER JOIN :TEMP_FINAL_PAGOS_BASES_2_MAC38P_RT_DIF T  ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+		AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID
+		AND F.ORDERID = T.ORDERID AND F.LINENUMBER = T.LINENUMBER AND F.SUBLINENUMBER = T.SUBLINENUMBER AND F.EVENTTYPEID = T.EVENTTYPEID AND F.COMPENSATIONDATE = T.COMPENSATIONDATE
+		AND T.RN_TRX = 1
+		;
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_FILE_TEST IMPORTE_DIF: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		---------------------------------------------------------------------------------------------------
+				
+		
+		---------------------------------------------------------------------------------------------------
+		-- 2_MAC38P_RG
+		---------------------------------------------------------------------------------------------------
+		--BASES
+		IF i_tipo_reparto = 'CIERRE' THEN
+			TEMP_BASES_2_MAC38P_RG = SELECT * 
+	    		FROM EXT.FINAL_BASES_REPARTO_POLIZA_FILE B
+	    		WHERE PERIODSEQ = i_periodSeq
+	    		--RAMO EARNINGGROUPID = '03-RT'
+	    		--AND PRODUCTID LIKE '032%'
+	    		;
+	    	CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_BASES_2_MAC38P_RG: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+	    ELSE
+	    	TEMP_BASES_2_MAC38P_RG = SELECT * 
+    		FROM EXT.FINAL_BASES_REPARTO_POLIZA_FILE_NUEVA_BASE_REPARTO B
+    		WHERE PERIODSEQ = v_periodSeqAnterior
+    		--RAMO EARNINGGROUPID = '03-RT'
+    		--AND PRODUCTID LIKE '032%'
+    		;
+    		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_BASES_2_MAC38P_RG (BALANCE): ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+    	END IF;
+			
+		
+		-- --BASES_TOTAL_IMPORTE
+  --  	BASES_TOTAL_IMPORTE_2_MAC38P_RG = 
+		-- 	SELECT POSITIONSEQ, SUM(IMPORTE_COMISION) AS SUMA_IMPORTE
+		-- 	FROM :TEMP_BASES_2_MAC38P_RG
+		-- 	WHERE IMPORTE_COMISION <> 0
+		-- 	GROUP BY POSITIONSEQ;
+
+			
+		--FINAL
+    	TEMP_FINAL_PAGOS_BASES_2_MAC38P_RG = SELECT P.PARTICIPANTSEQ,
+                                P.POSITIONSEQ,
+                                P.PERIODSEQ,
+                                :v_periodName AS PERIODO,
+                                P.POS_CALLIDUS POSITIONNAME,
+                                P.POS_PRIN,
+                                P.NIF,
+                                P.MANAGER_POS_PRIN,
+                                ORDERID,
+                                LINENUMBER,
+                                SUBLINENUMBER,
+                                EVENTTYPEID,
+                                PRODUCTID,
+                                CODIGO_POLIZA,
+                                COMPENSATIONDATE,
+                                ESTADO,
+                                P.PROGRAMA,
+                                P.TIPO_PAGO,
+                                P.DEPOSITO,
+                                P.DEPOSITSEQ,
+                                P.IMPORTE IMPORTE_PAGO,
+                                P.EARNINGCODEID,
+                                P.EARNINGGROUPID,
+                                P.TIPO_DOCUMENTO,
+                                P.TIPO_AGENTE,
+                                B.IMPORTE_COMISION AS IMPORTE,
+                                (SELECT SUM(IMPORTE_COMISION)
+                                	FROM :TEMP_BASES_2_MAC38P_RG S
+                                	WHERE S.POSITIONSEQ = B.POSITIONSEQ
+                                	AND S.PRODUCTID LIKE '%'||RIGHT(P.EARNINGCODEID,5)
+									AND S.EVENTTYPEID = 'Pago Comercial'
+                                ) AS SUMA_IMPORTE,
+                                NULL AS TIPO_REPARTO,
+                                0 AS NUM_TRAMO,
+                                NULL AS REPARTO_TIPO_BASE,
+                                NULL AS REPARTO_PORCENTAJE,
+                                POLIZA_FISICA,
+                                POLIZA_CORREGIDA,
+                                PRIMA_CORREGIDA,
+                                PRIMA_NETA,
+                                PRIMA_NETA_ANUAL,
+                                PRIMA_COMIS_S4 PRIMA_COMIS,
+                                NULL AS COEF_TIPO_BASE,
+                                NULL AS COEF_CORRECTOR,
+                                COD_AGENTE,
+                                P.TIPO_LIQ
+    					FROM :TEMP_PAGOS_DIRECTOS_RG P
+    					INNER JOIN :TEMP_BASES_2_MAC38P_RG B ON P.POSITIONSEQ = B.POSITIONSEQ
+    					--INNER JOIN :BASES_TOTAL_IMPORTE_2_MAC38P_RG BT ON BT.POSITIONSEQ = B.POSITIONSEQ
+    					WHERE ((B.POS_PRIN = P.POS_PRIN AND (IFNULL(B.CAMBIO_AG_INSP,'0') = '0')) OR B.MANAGER_POS_PRIN = P.POS_PRIN OR B.CAPTADOR_POS_PRIN = P.POS_PRIN)
+    					--TIPO AGENTE
+                        AND P.TIPO_AGENTE != '82'
+                        --RAMO
+    					AND B.PRODUCTID LIKE '%'||RIGHT(P.EARNINGCODEID,5)
+    					--PERMANENCIA
+    					AND B.EVENTTYPEID = 'Pago Comercial' AND B.CODIGO_POLIZA = P.EARNINGGROUPID AND ESTADO = SUBSTRING(P.EARNINGCODEID,1,3)
+    					--TIPO CONCEPTO
+    					AND B.IMPORTE_COMISION <> 0
+    					AND NOT EXISTS (
+    					    SELECT 1 
+    					    FROM EXT.FINAL_REPEXT_FILE_TEST X 
+    					    WHERE X.POS_PRIN       = P.POS_PRIN
+    					      AND X.PERIODSEQ      = P.PERIODSEQ
+    					      AND X.EARNINGCODEID  = P.EARNINGCODEID
+    					      AND X.EARNINGGROUPID = P.EARNINGGROUPID
+    					      AND X.TIPO_DOCUMENTO = P.TIPO_DOCUMENTO
+    					      AND X.ORDERID        = B.ORDERID
+    					      AND X.LINENUMBER     = B.LINENUMBER
+    					      AND X.SUBLINENUMBER  = B.SUBLINENUMBER
+    					      AND X.EVENTTYPEID    = B.EVENTTYPEID
+    					);
+    					
+    	CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_FINAL_PAGOS_BASES_2_MAC38P_RG: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');	
+    	
+    	--SELECT 'TEMP_FINAL_PAGOS_BASES_2_MAC38P_RG',* FROM :TEMP_FINAL_PAGOS_BASES_2_MAC38P_RG;
+    	
+    	--LIQUIDACIÓN COMPLEMENTARIA
+		IF v_num_post > 1 AND i_tipo_reparto = 'CIERRE' THEN
+		
+			TEMP_PAGOS_DIRECTOS_2_MAC38P_RG_LC = SELECT SUM(IMPORTE) SUMA_PAGOS,PERIODSEQ,POS_PRIN,EARNINGGROUPID,EARNINGCODEID,DEPOSITO 
+				FROM :TEMP_FINAL_PAGOS_BASES_2_MAC38P_RG
+				WHERE TIPO_LIQ IN ('CIERRE','LIQ')
+				GROUP BY PERIODSEQ,POS_PRIN,EARNINGGROUPID,EARNINGCODEID,DEPOSITO;
+		
+			INSERT INTO EXT.FINAL_REPEXT_FILE_TEST("TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+		        ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+		        ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+		        ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ")
+		    SELECT "TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+		        ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE"*(-1),"TIPO_AGENTE","TIPO_DOCUMENTO",TF."EARNINGGROUPID"
+		        ,TF."EARNINGCODEID",TF.SUMA_IMPORTE,"DEPOSITSEQ",TF."DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+		        ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF",TF."POS_PRIN","POSITIONNAME","PERIODO",TF."PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ"
+		    FROM :TEMP_FINAL_PAGOS_BASES_2_MAC38P_RG TF 
+		    	INNER JOIN :TEMP_PAGOS_DIRECTOS_2_MAC38P_RG_LC TLC ON TF.PERIODSEQ = TLC.PERIODSEQ AND TF.POS_PRIN = TLC.POS_PRIN 
+		    	AND TF.EARNINGGROUPID = TLC.EARNINGGROUPID AND TF.EARNINGCODEID = TLC. EARNINGCODEID AND TF.DEPOSITO = TLC.DEPOSITO
+		    	AND 1 = (CASE WHEN SUMA_PAGOS <> SUMA_IMPORTE THEN 1 END); 
+		 END IF;
+    	-- FIN LIQUIDACIÓN COMPLEMENTARIA
+    	
+    	UPDATE F
+    	SET ESTADO_REPARTO = CASE 
+    		WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 2
+			WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 3
+			ELSE 4 
+		END
+		FROM EXT.FINAL_REPEXT_PAGOS_FILE_TEST F
+		INNER JOIN :TEMP_FINAL_PAGOS_BASES_2_MAC38P_RG T ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+		AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID;
+		
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_PAGOS_FILE_TEST ESTADOS ACTUALIZADOS: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+		
+		UPDATE F
+            SET ESTADO_REPARTO = CASE 
+    				WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 2
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 3
+					ELSE 4 
+				END --REPARTO CORRECTO
+			FROM :TEMP_REPEXT_PAGOS_REPARTO_FILE F
+			INNER JOIN :TEMP_FINAL_PAGOS_BASES_2_MAC38P_RG T ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+			AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+			WHERE 1 = (CASE 
+    				WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 1
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+					ELSE 0 
+				END)
+	--		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID
+			;
+        CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_REPEXT_PAGOS_REPARTO_FILE ESTADOS ACTUALIZADOS: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');   
+                                   
+		
+		INSERT INTO EXT.FINAL_REPEXT_FILE_TEST("TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+            ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+            ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+            ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ")
+        SELECT "TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+            ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+            ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+            ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ"
+        FROM :TEMP_FINAL_PAGOS_BASES_2_MAC38P_RG
+        WHERE 1 = (
+        	CASE 
+        		WHEN (IMPORTE_PAGO - IFNULL(SUMA_IMPORTE,0)) = 0 THEN 1
+    			WHEN (IMPORTE_PAGO - IFNULL(SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+    		ELSE 0 
+    		END);
+
+
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_FILE_TEST INSERTADOS: ' ||::ROWCOUNT, v_log_count, v_idproceso, 'info');				
+		---------------------------------------------------------------------------------------------------
+		
+		TEMP_FINAL_PAGOS_BASES_2_MAC38P_RG_DIF =
+			SELECT T.PERIODSEQ,T.POS_PRIN,T.TIPO_DOCUMENTO,T.DEPOSITSEQ,T.EARNINGCODEID,T.EARNINGGROUPID,T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0) AS DIF,
+			T.ORDERID,T.LINENUMBER,T.SUBLINENUMBER,T.EVENTTYPEID, T.COMPENSATIONDATE,
+				ROW_NUMBER() OVER(
+                      		PARTITION BY T.PERIODSEQ,T.POS_PRIN,T.TIPO_DOCUMENTO,T.DEPOSITSEQ,T.EARNINGCODEID,T.EARNINGGROUPID
+                      		--ORDER BY T.ORDERID
+                      ) AS RN_TRX
+			FROM :TEMP_FINAL_PAGOS_BASES_2_MAC38P_RG T
+			WHERE 1 = (CASE 
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 0
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+					ELSE 0 
+				END)
+		;
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_FINAL_PAGOS_BASES_2_MAC38P_RG_DIF: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+		UPDATE F
+    	SET F.IMPORTE = F.IMPORTE + T.DIF
+    	FROM EXT.FINAL_REPEXT_FILE_TEST F
+    	INNER JOIN :TEMP_FINAL_PAGOS_BASES_2_MAC38P_RG_DIF T  ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+		AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID
+		AND F.ORDERID = T.ORDERID AND F.LINENUMBER = T.LINENUMBER AND F.SUBLINENUMBER = T.SUBLINENUMBER AND F.EVENTTYPEID = T.EVENTTYPEID AND F.COMPENSATIONDATE = T.COMPENSATIONDATE
+		AND T.RN_TRX = 1
+		;
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_FILE_TEST IMPORTE_DIF: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		---------------------------------------------------------------------------------------------------
+		       
+        
+        
+        ---------------------------------------------------------------------------------------------------
+		-- 2_03_RT
+		---------------------------------------------------------------------------------------------------
+		
+		--BASES
+		IF i_tipo_reparto = 'CIERRE' THEN
+			TEMP_BASES_2_03_RT = SELECT * 
+	    		FROM EXT.FINAL_BASES_REPARTO_POLIZA_FILE B
+	    		WHERE PERIODSEQ = i_periodSeq
+	    		--RAMO EARNINGGROUPID = '03-RT'
+	    		--AND PRODUCTID LIKE '032%'
+	    		;
+	    	CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_BASES_2_03_RT: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+	    ELSE
+	    TEMP_BASES_2_03_RT = SELECT * 
+    		FROM EXT.FINAL_BASES_REPARTO_POLIZA_FILE_NUEVA_BASE_REPARTO B
+    		WHERE PERIODSEQ = v_periodSeqAnterior
+    		--RAMO EARNINGGROUPID = '03-RT'
+    		--AND PRODUCTID LIKE '032%'
+    		;
+    	CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_BASES_2_03_RT (BALANCE): ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+    	END IF;
+			
+		
+		-- --BASES_TOTAL_IMPORTE
+    	BASES_TOTAL_IMPORTE_2_03_RT = 
+			SELECT B.POSITIONSEQ, SUM(CASE WHEN B.POS_PRIN = P.POS_PRIN OR B.MANAGER_POS_PRIN = P.POS_PRIN THEN B.DIF_INSP ELSE B.DIF_CAPT END) AS SUMA_IMPORTE
+			FROM :TEMP_BASES_2_03_RT B
+			INNER JOIN :TEMP_PAGOS_DIRECTOS_03_RT P ON B.POSITIONSEQ = P.POSITIONSEQ
+			WHERE CASE WHEN B.POS_PRIN = P.POS_PRIN OR B.MANAGER_POS_PRIN = P.POS_PRIN THEN B.DIF_INSP ELSE B.DIF_CAPT END <> 0
+			GROUP BY B.POSITIONSEQ;
+			
+		--FINAL
+    	TEMP_FINAL_PAGOS_BASES_2_03_RT = SELECT P.PARTICIPANTSEQ,
+                                P.POSITIONSEQ,
+                                P.PERIODSEQ,
+                                :v_periodName AS PERIODO,
+                                P.POS_CALLIDUS POSITIONNAME,
+                                P.POS_PRIN,
+                                P.NIF,
+                                P.MANAGER_POS_PRIN,
+                                ORDERID,
+                                LINENUMBER,
+                                SUBLINENUMBER,
+                                EVENTTYPEID,
+                                PRODUCTID,
+                                CODIGO_POLIZA,
+                                COMPENSATIONDATE,
+                                ESTADO,
+                                P.PROGRAMA,
+                                P.TIPO_PAGO,
+                                P.DEPOSITO,
+                                P.DEPOSITSEQ,
+                                P.IMPORTE IMPORTE_PAGO,
+                                P.EARNINGCODEID,
+                                P.EARNINGGROUPID,
+                                P.TIPO_DOCUMENTO,
+                                P.TIPO_AGENTE,
+                                (CASE WHEN B.POS_PRIN = P.POS_PRIN OR B.MANAGER_POS_PRIN = P.POS_PRIN THEN B.DIF_INSP ELSE B.DIF_CAPT END) AS IMPORTE,
+                                --SUM((CASE WHEN B.POS_PRIN = P.POS_PRIN OR B.MANAGER_POS_PRIN = P.POS_PRIN THEN B.DIF_INSP ELSE B.DIF_CAPT END)) OVER(PARTITION BY P.POSITIONSEQ) AS SUMA_IMPORTE,
+                                BT.SUMA_IMPORTE AS SUMA_IMPORTE,
+                                NULL AS TIPO_REPARTO,
+                                0 AS NUM_TRAMO,
+                                NULL AS REPARTO_TIPO_BASE,
+                                NULL AS REPARTO_PORCENTAJE,
+                                POLIZA_FISICA,
+                                POLIZA_CORREGIDA,
+                                PRIMA_CORREGIDA,
+                                PRIMA_NETA,
+                                PRIMA_NETA_ANUAL,
+                                PRIMA_COMIS_S4 PRIMA_COMIS,
+                                NULL AS COEF_TIPO_BASE,
+                                NULL AS COEF_CORRECTOR,
+                                COD_AGENTE,
+                                P.TIPO_LIQ
+    					FROM :TEMP_PAGOS_DIRECTOS_03_RT P
+    					INNER JOIN :TEMP_BASES_2_03_RT B ON P.POSITIONSEQ = B.POSITIONSEQ
+    					INNER JOIN :BASES_TOTAL_IMPORTE_2_03_RT BT ON BT.POSITIONSEQ = B.POSITIONSEQ
+    					--POSITION
+    					WHERE (B.POS_PRIN = P.POS_PRIN OR B.MANAGER_POS_PRIN = P.POS_PRIN)
+    					--TIPO AGENTE
+                        AND P.TIPO_AGENTE != '82'
+                        --RAMO
+    					--PERMANENCIA
+    					--TIPO CONCEPTO
+    					AND (CASE WHEN B.POS_PRIN = P.POS_PRIN OR B.MANAGER_POS_PRIN = P.POS_PRIN THEN B.DIF_INSP ELSE B.DIF_CAPT END) <> 0
+    					AND NOT EXISTS (
+    					    SELECT 1 
+    					    FROM EXT.FINAL_REPEXT_FILE_TEST X 
+    					    WHERE X.POS_PRIN       = P.POS_PRIN
+    					      AND X.PERIODSEQ      = P.PERIODSEQ
+    					      AND X.EARNINGCODEID  = P.EARNINGCODEID
+    					      AND X.EARNINGGROUPID = P.EARNINGGROUPID
+    					      AND X.TIPO_DOCUMENTO = P.TIPO_DOCUMENTO
+    					      AND X.ORDERID        = B.ORDERID
+    					      AND X.LINENUMBER     = B.LINENUMBER
+    					      AND X.SUBLINENUMBER  = B.SUBLINENUMBER
+    					      AND X.EVENTTYPEID    = B.EVENTTYPEID
+    					);
+    					
+    	CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_FINAL_PAGOS_BASES_2_03_RT: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');	
+    	
+    
+    	
+    	--LIQUIDACIÓN COMPLEMENTARIA
+		IF v_num_post > 1 AND i_tipo_reparto = 'CIERRE' THEN
+		
+			TEMP_PAGOS_DIRECTOS_2_03_RT_LC = SELECT SUM(IMPORTE) SUMA_PAGOS,PERIODSEQ,POS_PRIN,EARNINGGROUPID,EARNINGCODEID,DEPOSITO 
+				FROM :TEMP_FINAL_PAGOS_BASES_2_03_RT
+				WHERE TIPO_LIQ IN ('CIERRE','LIQ')
+				GROUP BY PERIODSEQ,POS_PRIN,EARNINGGROUPID,EARNINGCODEID,DEPOSITO;
+		
+			INSERT INTO EXT.FINAL_REPEXT_FILE_TEST("TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+		        ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+		        ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+		        ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ")
+		    SELECT "TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+		        ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE"*(-1),"TIPO_AGENTE","TIPO_DOCUMENTO",TF."EARNINGGROUPID"
+		        ,TF."EARNINGCODEID",TF.SUMA_IMPORTE,"DEPOSITSEQ",TF."DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+		        ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF",TF."POS_PRIN","POSITIONNAME","PERIODO",TF."PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ"
+		    FROM :TEMP_FINAL_PAGOS_BASES_2_03_RT TF 
+		    	INNER JOIN :TEMP_PAGOS_DIRECTOS_2_03_RT_LC TLC ON TF.PERIODSEQ = TLC.PERIODSEQ AND TF.POS_PRIN = TLC.POS_PRIN 
+		    	AND TF.EARNINGGROUPID = TLC.EARNINGGROUPID AND TF.EARNINGCODEID = TLC. EARNINGCODEID AND TF.DEPOSITO = TLC.DEPOSITO
+		    	AND 1 = (CASE WHEN SUMA_PAGOS <> SUMA_IMPORTE THEN 1 END); 
+		 END IF;
+    	-- FIN LIQUIDACIÓN COMPLEMENTARIA
+    	
+    	UPDATE F
+    	SET ESTADO_REPARTO = CASE 
+    		WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 2
+			WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 3
+			ELSE 4 
+		END
+		FROM EXT.FINAL_REPEXT_PAGOS_FILE_TEST F
+		INNER JOIN :TEMP_FINAL_PAGOS_BASES_2_03_RT T ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+		AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID;
+		
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_PAGOS_FILE_TEST ESTADOS ACTUALIZADOS: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+		
+		UPDATE F
+            SET ESTADO_REPARTO = CASE 
+    				WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 2
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 3
+					ELSE 4 
+				END --REPARTO CORRECTO
+			FROM :TEMP_REPEXT_PAGOS_REPARTO_FILE F
+			INNER JOIN :TEMP_FINAL_PAGOS_BASES_2_03_RT T ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+			AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+			WHERE 1 = (CASE 
+    				WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 1
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+					ELSE 0 
+				END)
+	--		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID
+			;
+        CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_REPEXT_PAGOS_REPARTO_FILE ESTADOS ACTUALIZADOS: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');   
+                                   
+		
+		INSERT INTO EXT.FINAL_REPEXT_FILE_TEST("TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+            ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+            ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+            ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ")
+        SELECT "TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+            ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+            ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+            ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ"
+        FROM :TEMP_FINAL_PAGOS_BASES_2_03_RT
+        WHERE 1 = (
+        	CASE 
+        		WHEN (IMPORTE_PAGO - IFNULL(SUMA_IMPORTE,0)) = 0 THEN 1
+    			WHEN (IMPORTE_PAGO - IFNULL(SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+    		ELSE 0 
+    		END);
+
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_FILE_TEST INSERTADOS: ' ||::ROWCOUNT, v_log_count, v_idproceso, 'info');				
+		---------------------------------------------------------------------------------------------------
+		
+		TEMP_FINAL_PAGOS_BASES_2_03_RT_DIF =
+			SELECT T.PERIODSEQ,T.POS_PRIN,T.TIPO_DOCUMENTO,T.DEPOSITSEQ,T.EARNINGCODEID,T.EARNINGGROUPID,T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0) AS DIF,
+					T.ORDERID,T.LINENUMBER,T.SUBLINENUMBER,T.EVENTTYPEID, T.COMPENSATIONDATE,
+				ROW_NUMBER() OVER(
+                      		PARTITION BY T.PERIODSEQ,T.POS_PRIN,T.TIPO_DOCUMENTO,T.DEPOSITSEQ,T.EARNINGCODEID,T.EARNINGGROUPID
+                      		--ORDER BY T.ORDERID
+                      ) AS RN_TRX
+			FROM :TEMP_FINAL_PAGOS_BASES_2_03_RT T
+			WHERE 1 = (CASE 
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 0
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+					ELSE 0 
+				END)
+		;
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_FINAL_PAGOS_BASES_2_03_RT_DIF: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+		UPDATE F
+    	SET F.IMPORTE = F.IMPORTE + T.DIF
+    	FROM EXT.FINAL_REPEXT_FILE_TEST F
+    	INNER JOIN :TEMP_FINAL_PAGOS_BASES_2_03_RT_DIF T  ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+		AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID
+		AND F.ORDERID = T.ORDERID AND F.LINENUMBER = T.LINENUMBER AND F.SUBLINENUMBER = T.SUBLINENUMBER AND F.EVENTTYPEID = T.EVENTTYPEID AND F.COMPENSATIONDATE = T.COMPENSATIONDATE
+		AND T.RN_TRX = 1
+		;
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_FILE_TEST IMPORTE_DIF: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		---------------------------------------------------------------------------------------------------
+				
+		
+		---------------------------------------------------------------------------------------------------
+		-- 2_03_RG
+		---------------------------------------------------------------------------------------------------
+		--BASES
+		IF i_tipo_reparto = 'CIERRE' THEN
+			TEMP_BASES_2_03_RG = SELECT * 
+	    		FROM EXT.FINAL_BASES_REPARTO_POLIZA_FILE B
+	    		WHERE PERIODSEQ = i_periodSeq
+	    		--RAMO EARNINGGROUPID = '03-RT'
+	    		--AND PRODUCTID LIKE '032%'
+	    		;
+	    	CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_BASES_2_03_RG: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+	    ELSE
+	    	TEMP_BASES_2_03_RG = SELECT * 
+    		FROM EXT.FINAL_BASES_REPARTO_POLIZA_FILE_NUEVA_BASE_REPARTO B
+    		WHERE PERIODSEQ = v_periodSeqAnterior
+    		--RAMO EARNINGGROUPID = '03-RT'
+    		--AND PRODUCTID LIKE '032%'
+    		;
+    		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_BASES_2_03_RG (BALANCE): ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+    	END IF;
+		
+			
+		-- --BASES_TOTAL_IMPORTE
+    	BASES_TOTAL_IMPORTE_2_03_RG = 
+			SELECT B.POSITIONSEQ, SUM(CASE WHEN B.POS_PRIN = P.POS_PRIN OR B.MANAGER_POS_PRIN = P.POS_PRIN THEN B.DIF_INSP ELSE B.DIF_CAPT END) AS SUMA_IMPORTE
+			FROM :TEMP_BASES_2_03_RG B
+			INNER JOIN :TEMP_PAGOS_DIRECTOS_03_RG P ON B.POSITIONSEQ = P.POSITIONSEQ
+			WHERE CASE WHEN B.POS_PRIN = P.POS_PRIN OR B.MANAGER_POS_PRIN = P.POS_PRIN THEN B.DIF_INSP ELSE B.DIF_CAPT END <> 0
+			GROUP BY B.POSITIONSEQ;
+			
+		--FINAL
+    	TEMP_FINAL_PAGOS_BASES_2_03_RG = SELECT P.PARTICIPANTSEQ,
+                                P.POSITIONSEQ,
+                                P.PERIODSEQ,
+                                :v_periodName AS PERIODO,
+                                P.POS_CALLIDUS POSITIONNAME,
+                                P.POS_PRIN,
+                                P.NIF,
+                                P.MANAGER_POS_PRIN,
+                                ORDERID,
+                                LINENUMBER,
+                                SUBLINENUMBER,
+                                EVENTTYPEID,
+                                PRODUCTID,
+                                CODIGO_POLIZA,
+                                COMPENSATIONDATE,
+                                ESTADO,
+                                P.PROGRAMA,
+                                P.TIPO_PAGO,
+                                P.DEPOSITO,
+                                P.DEPOSITSEQ,
+                                P.IMPORTE IMPORTE_PAGO,
+                                P.EARNINGCODEID,
+                                P.EARNINGGROUPID,
+                                P.TIPO_DOCUMENTO,
+                                P.TIPO_AGENTE,
+                                (CASE WHEN B.POS_PRIN = P.POS_PRIN OR B.MANAGER_POS_PRIN = P.POS_PRIN THEN B.DIF_INSP ELSE B.DIF_CAPT END) AS IMPORTE,
+                                -- SUM((CASE WHEN B.POS_PRIN = P.POS_PRIN OR B.MANAGER_POS_PRIN = P.POS_PRIN THEN B.DIF_INSP ELSE B.DIF_CAPT END)) OVER(PARTITION BY P.POSITIONSEQ) AS SUMA_IMPORTE,
+                                BT.SUMA_IMPORTE AS SUMA_IMPORTE,
+                                NULL AS TIPO_REPARTO,
+                                0 AS NUM_TRAMO,
+                                NULL AS REPARTO_TIPO_BASE,
+                                NULL AS REPARTO_PORCENTAJE,
+                                POLIZA_FISICA,
+                                POLIZA_CORREGIDA,
+                                PRIMA_CORREGIDA,
+                                PRIMA_NETA,
+                                PRIMA_NETA_ANUAL,
+                                PRIMA_COMIS_S4 PRIMA_COMIS,
+                                NULL AS COEF_TIPO_BASE,
+                                NULL AS COEF_CORRECTOR,
+                                COD_AGENTE,
+                                P.TIPO_LIQ
+    					FROM :TEMP_PAGOS_DIRECTOS_03_RG P
+    					INNER JOIN :TEMP_BASES_2_03_RG B ON P.POSITIONSEQ = B.POSITIONSEQ
+    					INNER JOIN :BASES_TOTAL_IMPORTE_2_03_RG BT ON BT.POSITIONSEQ = B.POSITIONSEQ
+    					WHERE (B.POS_PRIN = P.POS_PRIN OR B.MANAGER_POS_PRIN = P.POS_PRIN)
+    					--TIPO AGENTE
+                        AND P.TIPO_AGENTE != '82'
+                        --RAMO
+    					-- AND B.PRODUCTID LIKE '%'||RIGHT(P.EARNINGCODEID,5)||'%'
+    					--PERMANENCIA
+    					-- AND B.EVENTTYPEID = 'Pago Comercial' AND B.CODIGO_POLIZA = P.EARNINGGROUPID AND ESTADO = SUBSTRING(P.EARNINGCODEID,1,3)
+    					--TIPO CONCEPTO
+    					AND (CASE WHEN B.POS_PRIN = P.POS_PRIN OR B.MANAGER_POS_PRIN = P.POS_PRIN THEN B.DIF_INSP ELSE B.DIF_CAPT END) <> 0
+    					AND NOT EXISTS (
+    					    SELECT 1 
+    					    FROM EXT.FINAL_REPEXT_FILE_TEST X 
+    					    WHERE X.POS_PRIN       = P.POS_PRIN
+    					      AND X.PERIODSEQ      = P.PERIODSEQ
+    					      AND X.EARNINGCODEID  = P.EARNINGCODEID
+    					      AND X.EARNINGGROUPID = P.EARNINGGROUPID
+    					      AND X.TIPO_DOCUMENTO = P.TIPO_DOCUMENTO
+    					      AND X.ORDERID        = B.ORDERID
+    					      AND X.LINENUMBER     = B.LINENUMBER
+    					      AND X.SUBLINENUMBER  = B.SUBLINENUMBER
+    					      AND X.EVENTTYPEID    = B.EVENTTYPEID
+    					);
+    	CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_FINAL_PAGOS_BASES_2_03_RG: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');	
+    	
+    	--SELECT 'TEMP_FINAL_PAGOS_BASES_2_03_RG',* FROM :TEMP_FINAL_PAGOS_BASES_2_03_RG;
+    	
+    	--LIQUIDACIÓN COMPLEMENTARIA
+		IF v_num_post > 1 AND i_tipo_reparto = 'CIERRE' THEN
+		
+			TEMP_PAGOS_DIRECTOS_2_03_RG_LC = SELECT SUM(IMPORTE) SUMA_PAGOS,PERIODSEQ,POS_PRIN,EARNINGGROUPID,EARNINGCODEID,DEPOSITO 
+				FROM :TEMP_FINAL_PAGOS_BASES_2_03_RG
+				WHERE TIPO_LIQ IN ('CIERRE','LIQ')
+				GROUP BY PERIODSEQ,POS_PRIN,EARNINGGROUPID,EARNINGCODEID,DEPOSITO;
+		
+			INSERT INTO EXT.FINAL_REPEXT_FILE_TEST("TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+		        ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+		        ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+		        ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ")
+		    SELECT "TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+		        ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE"*(-1),"TIPO_AGENTE","TIPO_DOCUMENTO",TF."EARNINGGROUPID"
+		        ,TF."EARNINGCODEID",TF.SUMA_IMPORTE,"DEPOSITSEQ",TF."DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+		        ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF",TF."POS_PRIN","POSITIONNAME","PERIODO",TF."PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ"
+		    FROM :TEMP_FINAL_PAGOS_BASES_2_03_RG TF 
+		    	INNER JOIN :TEMP_PAGOS_DIRECTOS_2_03_RG_LC TLC ON TF.PERIODSEQ = TLC.PERIODSEQ AND TF.POS_PRIN = TLC.POS_PRIN 
+		    	AND TF.EARNINGGROUPID = TLC.EARNINGGROUPID AND TF.EARNINGCODEID = TLC. EARNINGCODEID AND TF.DEPOSITO = TLC.DEPOSITO
+		    	AND 1 = (CASE WHEN SUMA_PAGOS <> SUMA_IMPORTE THEN 1 END); 
+		 END IF;
+    	-- FIN LIQUIDACIÓN COMPLEMENTARIA
+    	
+    	UPDATE F
+    	SET ESTADO_REPARTO = CASE 
+    		WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 2
+			WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 3
+			ELSE 4 
+		END
+		FROM EXT.FINAL_REPEXT_PAGOS_FILE_TEST F
+		INNER JOIN :TEMP_FINAL_PAGOS_BASES_2_03_RG T ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+		AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID;
+		
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_PAGOS_FILE_TEST ESTADOS ACTUALIZADOS: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+		
+		UPDATE F
+            SET ESTADO_REPARTO = CASE 
+    				WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 2
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 3
+					ELSE 4 
+				END --REPARTO CORRECTO
+			FROM :TEMP_REPEXT_PAGOS_REPARTO_FILE F
+			INNER JOIN :TEMP_FINAL_PAGOS_BASES_2_03_RG T ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+			AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+			WHERE 1 = (CASE 
+    				WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 1
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+					ELSE 0 
+				END)
+	--		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID
+			;
+        CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_REPEXT_PAGOS_REPARTO_FILE ESTADOS ACTUALIZADOS: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');   
+                                   
+		
+		INSERT INTO EXT.FINAL_REPEXT_FILE_TEST("TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+            ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+            ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+            ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ")
+        SELECT "TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+            ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+            ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+            ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ"
+        FROM :TEMP_FINAL_PAGOS_BASES_2_03_RG
+        WHERE 1 = (
+        	CASE 
+        		WHEN (IMPORTE_PAGO - IFNULL(SUMA_IMPORTE,0)) = 0 THEN 1
+    			WHEN (IMPORTE_PAGO - IFNULL(SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+    		ELSE 0 
+    		END);
+ 
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_FILE_TEST INSERTADOS: ' ||::ROWCOUNT, v_log_count, v_idproceso, 'info');				
+		---------------------------------------------------------------------------------------------------
+		
+		TEMP_FINAL_PAGOS_BASES_2_03_RG_DIF =
+			SELECT T.PERIODSEQ,T.POS_PRIN,T.TIPO_DOCUMENTO,T.DEPOSITSEQ,T.EARNINGCODEID,T.EARNINGGROUPID,T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0) AS DIF,
+				T.ORDERID,T.LINENUMBER,T.SUBLINENUMBER,T.EVENTTYPEID, T.COMPENSATIONDATE,
+				ROW_NUMBER() OVER(
+                      		PARTITION BY T.PERIODSEQ,T.POS_PRIN,T.TIPO_DOCUMENTO,T.DEPOSITSEQ,T.EARNINGCODEID,T.EARNINGGROUPID
+                      		--ORDER BY T.ORDERID
+                      ) AS RN_TRX
+			FROM :TEMP_FINAL_PAGOS_BASES_2_03_RG T
+			WHERE 1 = (CASE 
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 0
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+					ELSE 0 
+				END)
+		;
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_FINAL_PAGOS_BASES_2_03_RG_DIF: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+		UPDATE F
+    	SET F.IMPORTE = F.IMPORTE + T.DIF
+    	FROM EXT.FINAL_REPEXT_FILE_TEST F
+    	INNER JOIN :TEMP_FINAL_PAGOS_BASES_2_03_RG_DIF T  ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+		AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID
+		AND F.ORDERID = T.ORDERID AND F.LINENUMBER = T.LINENUMBER AND F.SUBLINENUMBER = T.SUBLINENUMBER AND F.EVENTTYPEID = T.EVENTTYPEID AND F.COMPENSATIONDATE = T.COMPENSATIONDATE
+		AND T.RN_TRX = 1
+		;
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_FILE_TEST IMPORTE_DIF: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+ 
+        
+        ---------------------------------------------------------------------------------------------------
+		-- 2_RT
+		---------------------------------------------------------------------------------------------------
+		
+		--BASES
+		IF i_tipo_reparto = 'CIERRE' THEN
+			TEMP_BASES_2_RT = SELECT * 
+	    		FROM EXT.FINAL_BASES_REPARTO_POLIZA_FILE B
+	    		WHERE PERIODSEQ = i_periodSeq
+	    		--RAMO EARNINGGROUPID = '03-RT'
+	    		--AND PRODUCTID LIKE '032%'
+	    		;
+	    	CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_BASES_2_RT: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		ELSE
+			TEMP_BASES_2_RT = SELECT * 
+    		FROM EXT.FINAL_BASES_REPARTO_POLIZA_FILE_NUEVA_BASE_REPARTO B
+    		WHERE PERIODSEQ = v_periodSeqAnterior
+    		--RAMO EARNINGGROUPID = '03-RT'
+    		--AND PRODUCTID LIKE '032%'
+    		;
+    		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_BASES_2_RT (BALANCE): ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+    	END IF;
+			
+		-- --BASES_TOTAL_IMPORTE
+    	BASES_TOTAL_IMPORTE_2_RT = 
+			SELECT B.POSITIONSEQ, SUM(CASE WHEN B.POS_PRIN = P.POS_PRIN OR B.MANAGER_POS_PRIN = P.POS_PRIN THEN B.DIF_INSP ELSE B.DIF_CAPT END) AS SUMA_IMPORTE
+			FROM :TEMP_BASES_2_RT B
+			INNER JOIN :TEMP_PAGOS_DIRECTOS_RT P ON B.POSITIONSEQ = P.POSITIONSEQ
+			WHERE CASE WHEN B.POS_PRIN = P.POS_PRIN OR B.MANAGER_POS_PRIN = P.POS_PRIN THEN B.DIF_INSP ELSE B.DIF_CAPT END <> 0
+			GROUP BY B.POSITIONSEQ;	
+		
+		--FINAL
+    	TEMP_FINAL_PAGOS_BASES_2_RT = SELECT P.PARTICIPANTSEQ,
+                                P.POSITIONSEQ,
+                                P.PERIODSEQ,
+                                :v_periodName AS PERIODO,
+                                P.POS_CALLIDUS POSITIONNAME,
+                                P.POS_PRIN,
+                                P.NIF,
+                                P.MANAGER_POS_PRIN,
+                                ORDERID,
+                                LINENUMBER,
+                                SUBLINENUMBER,
+                                EVENTTYPEID,
+                                PRODUCTID,
+                                CODIGO_POLIZA,
+                                COMPENSATIONDATE,
+                                ESTADO,
+                                P.PROGRAMA,
+                                P.TIPO_PAGO,
+                                P.DEPOSITO,
+                                P.DEPOSITSEQ,
+                                P.IMPORTE IMPORTE_PAGO,
+                                P.EARNINGCODEID,
+                                P.EARNINGGROUPID,
+                                P.TIPO_DOCUMENTO,
+                                P.TIPO_AGENTE,
+                                (CASE WHEN B.POS_PRIN = P.POS_PRIN OR B.MANAGER_POS_PRIN = P.POS_PRIN THEN B.DIF_INSP ELSE B.DIF_CAPT END) AS IMPORTE,
+                                --SUM((CASE WHEN B.POS_PRIN = P.POS_PRIN OR B.MANAGER_POS_PRIN = P.POS_PRIN THEN B.DIF_INSP ELSE B.DIF_CAPT END)) OVER(PARTITION BY P.POSITIONSEQ) AS SUMA_IMPORTE,
+                                BT.SUMA_IMPORTE AS SUMA_IMPORTE,
+                                NULL AS TIPO_REPARTO,
+                                0 AS NUM_TRAMO,
+                                NULL AS REPARTO_TIPO_BASE,
+                                NULL AS REPARTO_PORCENTAJE,
+                                POLIZA_FISICA,
+                                POLIZA_CORREGIDA,
+                                PRIMA_CORREGIDA,
+                                PRIMA_NETA,
+                                PRIMA_NETA_ANUAL,
+                                PRIMA_COMIS_S4 PRIMA_COMIS,
+                                NULL AS COEF_TIPO_BASE,
+                                NULL AS COEF_CORRECTOR,
+                                COD_AGENTE,
+                                P.TIPO_LIQ
+    					FROM :TEMP_PAGOS_DIRECTOS_RT P
+    					INNER JOIN :TEMP_BASES_2_RT B ON P.POSITIONSEQ = B.POSITIONSEQ
+    					INNER JOIN :BASES_TOTAL_IMPORTE_2_RT BT ON BT.POSITIONSEQ = B.POSITIONSEQ
+    					--POSITION
+    					WHERE ((B.POS_PRIN = P.POS_PRIN AND (IFNULL(B.CAMBIO_AG_INSP,'0') = '0')) OR B.MANAGER_POS_PRIN = P.POS_PRIN OR B.CAPTADOR_POS_PRIN = P.POS_PRIN)
+    					--TIPO AGENTE
+                        AND P.TIPO_AGENTE != '82'
+                        --RAMO
+    					--PERMANENCIA
+    					--TIPO CONCEPTO
+    					AND (CASE WHEN B.POS_PRIN = P.POS_PRIN OR B.MANAGER_POS_PRIN = P.POS_PRIN THEN B.DIF_INSP ELSE B.DIF_CAPT END) <> 0
+    					AND NOT EXISTS (
+    					    SELECT 1 
+    					    FROM EXT.FINAL_REPEXT_FILE_TEST X 
+    					    WHERE X.POS_PRIN       = P.POS_PRIN
+    					      AND X.PERIODSEQ      = P.PERIODSEQ
+    					      AND X.EARNINGCODEID  = P.EARNINGCODEID
+    					      AND X.EARNINGGROUPID = P.EARNINGGROUPID
+    					      AND X.TIPO_DOCUMENTO = P.TIPO_DOCUMENTO
+    					      AND X.ORDERID        = B.ORDERID
+    					      AND X.LINENUMBER     = B.LINENUMBER
+    					      AND X.SUBLINENUMBER  = B.SUBLINENUMBER
+    					      AND X.EVENTTYPEID    = B.EVENTTYPEID
+    					);
+    	CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_FINAL_PAGOS_BASES_2_RT: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');	
+    	
+    	--SELECT 'TEMP_FINAL_PAGOS_BASES_2_RT',* FROM :TEMP_FINAL_PAGOS_BASES_2_RT;
+    	
+    	--LIQUIDACIÓN COMPLEMENTARIA
+		IF v_num_post > 1 AND i_tipo_reparto = 'CIERRE' THEN
+		
+			TEMP_PAGOS_DIRECTOS_2_RT_LC = SELECT SUM(IMPORTE) SUMA_PAGOS,PERIODSEQ,POS_PRIN,EARNINGGROUPID,EARNINGCODEID,DEPOSITO 
+				FROM :TEMP_FINAL_PAGOS_BASES_2_RT
+				WHERE TIPO_LIQ IN ('CIERRE','LIQ')
+				GROUP BY PERIODSEQ,POS_PRIN,EARNINGGROUPID,EARNINGCODEID,DEPOSITO;
+		
+			INSERT INTO EXT.FINAL_REPEXT_FILE_TEST("TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+		        ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+		        ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+		        ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ")
+		    SELECT "TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+		        ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE"*(-1),"TIPO_AGENTE","TIPO_DOCUMENTO",TF."EARNINGGROUPID"
+		        ,TF."EARNINGCODEID",TF.SUMA_IMPORTE,"DEPOSITSEQ",TF."DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+		        ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF",TF."POS_PRIN","POSITIONNAME","PERIODO",TF."PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ"
+		    FROM :TEMP_FINAL_PAGOS_BASES_2_RT TF 
+		    	INNER JOIN :TEMP_PAGOS_DIRECTOS_2_RT_LC TLC ON TF.PERIODSEQ = TLC.PERIODSEQ AND TF.POS_PRIN = TLC.POS_PRIN 
+		    	AND TF.EARNINGGROUPID = TLC.EARNINGGROUPID AND TF.EARNINGCODEID = TLC. EARNINGCODEID AND TF.DEPOSITO = TLC.DEPOSITO
+		    	AND 1 = (CASE WHEN SUMA_PAGOS <> SUMA_IMPORTE THEN 1 END); 
+		 END IF;
+    	-- FIN LIQUIDACIÓN COMPLEMENTARIA
+    	
+    	UPDATE F
+    	SET ESTADO_REPARTO = CASE 
+    		WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 2
+			WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 3
+			ELSE 4 
+		END
+		FROM EXT.FINAL_REPEXT_PAGOS_FILE_TEST F
+		INNER JOIN :TEMP_FINAL_PAGOS_BASES_2_RT T ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+		AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID;
+		
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_PAGOS_FILE_TEST ESTADOS ACTUALIZADOS: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+		
+		UPDATE F
+            SET ESTADO_REPARTO = CASE 
+    				WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 2
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 3
+					ELSE 4 
+				END --REPARTO CORRECTO
+			FROM :TEMP_REPEXT_PAGOS_REPARTO_FILE F
+			INNER JOIN :TEMP_FINAL_PAGOS_BASES_2_RT T ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+			AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+			WHERE 1 = (CASE 
+    				WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 1
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+					ELSE 0 
+				END)
+	--		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID
+			;
+        CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_REPEXT_PAGOS_REPARTO_FILE ESTADOS ACTUALIZADOS: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');   
+                                   
+		
+		INSERT INTO EXT.FINAL_REPEXT_FILE_TEST("TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+            ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+            ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+            ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ")
+        SELECT "TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+            ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+            ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+            ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ"
+        FROM :TEMP_FINAL_PAGOS_BASES_2_RT
+        WHERE 1 = (
+        	CASE 
+        		WHEN (IMPORTE_PAGO - IFNULL(SUMA_IMPORTE,0)) = 0 THEN 1
+    			WHEN (IMPORTE_PAGO - IFNULL(SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+    		ELSE 0 
+    		END);
+
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_FILE_TEST INSERTADOS: ' ||::ROWCOUNT, v_log_count, v_idproceso, 'info');				
+		---------------------------------------------------------------------------------------------------
+		
+		TEMP_FINAL_PAGOS_BASES_2_RT_DIF =
+			SELECT T.PERIODSEQ,T.POS_PRIN,T.TIPO_DOCUMENTO,T.DEPOSITSEQ,T.EARNINGCODEID,T.EARNINGGROUPID,T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0) AS DIF,
+					T.ORDERID,T.LINENUMBER,T.SUBLINENUMBER,T.EVENTTYPEID, T.COMPENSATIONDATE,
+				ROW_NUMBER() OVER(
+                      		PARTITION BY T.PERIODSEQ,T.POS_PRIN,T.TIPO_DOCUMENTO,T.DEPOSITSEQ,T.EARNINGCODEID,T.EARNINGGROUPID
+                      		--ORDER BY T.ORDERID
+                      ) AS RN_TRX
+			FROM :TEMP_FINAL_PAGOS_BASES_2_RT T
+			WHERE 1 = (CASE 
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 0
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+					ELSE 0 
+				END)
+		;
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_FINAL_PAGOS_BASES_2_RT_DIF: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+		UPDATE F
+    	SET F.IMPORTE = F.IMPORTE + T.DIF
+    	FROM EXT.FINAL_REPEXT_FILE_TEST F
+    	INNER JOIN :TEMP_FINAL_PAGOS_BASES_2_RT_DIF T  ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+		AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID
+		AND F.ORDERID = T.ORDERID AND F.LINENUMBER = T.LINENUMBER AND F.SUBLINENUMBER = T.SUBLINENUMBER AND F.EVENTTYPEID = T.EVENTTYPEID AND F.COMPENSATIONDATE = T.COMPENSATIONDATE
+		AND T.RN_TRX = 1
+		;
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_FILE_TEST IMPORTE_DIF: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+		
+		---------------------------------------------------------------------------------------------------
+		-- 2_RG
+		---------------------------------------------------------------------------------------------------
+		--BASES
+		IF i_tipo_reparto = 'CIERRE' THEN
+			TEMP_BASES_2_RG = SELECT * 
+	    		FROM EXT.FINAL_BASES_REPARTO_POLIZA_FILE B
+	    		WHERE PERIODSEQ = i_periodSeq
+	    		--RAMO EARNINGGROUPID = '03-RT'
+	    		--AND PRODUCTID LIKE '032%'
+	    		;
+	    		
+	    	CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_BASES_2_RG: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+	    ELSE
+	    	TEMP_BASES_2_RG = SELECT * 
+    		FROM EXT.FINAL_BASES_REPARTO_POLIZA_FILE_NUEVA_BASE_REPARTO B
+    		WHERE PERIODSEQ = v_periodSeqAnterior
+    		--RAMO EARNINGGROUPID = '03-RT'
+    		--AND PRODUCTID LIKE '032%'
+    		;
+    		
+    		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_BASES_2_RG (BALANCE): ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+    	END IF;
+		
+			
+		
+		
+		-- --BASES_TOTAL_IMPORTE
+    	BASES_TOTAL_IMPORTE_2_RG = 
+			SELECT B.POSITIONSEQ, SUM(CASE WHEN B.POS_PRIN = P.POS_PRIN OR B.MANAGER_POS_PRIN = P.POS_PRIN THEN B.DIF_INSP ELSE B.DIF_CAPT END) AS SUMA_IMPORTE
+			FROM :TEMP_BASES_2_RG B
+			INNER JOIN :TEMP_PAGOS_DIRECTOS_RG P ON B.POSITIONSEQ = P.POSITIONSEQ
+			WHERE CASE WHEN B.POS_PRIN = P.POS_PRIN OR B.MANAGER_POS_PRIN = P.POS_PRIN THEN B.DIF_INSP ELSE B.DIF_CAPT END <> 0
+			GROUP BY B.POSITIONSEQ;	
+			
+		--FINAL
+    	TEMP_FINAL_PAGOS_BASES_2_RG = SELECT P.PARTICIPANTSEQ,
+                                P.POSITIONSEQ,
+                                P.PERIODSEQ,
+                                :v_periodName AS PERIODO,
+                                P.POS_CALLIDUS POSITIONNAME,
+                                P.POS_PRIN,
+                                P.NIF,
+                                P.MANAGER_POS_PRIN,
+                                ORDERID,
+                                LINENUMBER,
+                                SUBLINENUMBER,
+                                EVENTTYPEID,
+                                PRODUCTID,
+                                CODIGO_POLIZA,
+                                COMPENSATIONDATE,
+                                ESTADO,
+                                P.PROGRAMA,
+                                P.TIPO_PAGO,
+                                P.DEPOSITO,
+                                P.DEPOSITSEQ,
+                                P.IMPORTE IMPORTE_PAGO,
+                                P.EARNINGCODEID,
+                                P.EARNINGGROUPID,
+                                P.TIPO_DOCUMENTO,
+                                P.TIPO_AGENTE,
+                                (CASE WHEN B.POS_PRIN = P.POS_PRIN OR B.MANAGER_POS_PRIN = P.POS_PRIN THEN B.DIF_INSP ELSE B.DIF_CAPT END) AS IMPORTE,
+                                -- SUM((CASE WHEN B.POS_PRIN = P.POS_PRIN OR B.MANAGER_POS_PRIN = P.POS_PRIN THEN B.DIF_INSP ELSE B.DIF_CAPT END)) OVER(PARTITION BY P.POSITIONSEQ) AS SUMA_IMPORTE,
+                                BT.SUMA_IMPORTE AS SUMA_IMPORTE,
+                                NULL AS TIPO_REPARTO,
+                                0 AS NUM_TRAMO,
+                                NULL AS REPARTO_TIPO_BASE,
+                                NULL AS REPARTO_PORCENTAJE,
+                                POLIZA_FISICA,
+                                POLIZA_CORREGIDA,
+                                PRIMA_CORREGIDA,
+                                PRIMA_NETA,
+                                PRIMA_NETA_ANUAL,
+                                PRIMA_COMIS_S4 PRIMA_COMIS,
+                                NULL AS COEF_TIPO_BASE,
+                                NULL AS COEF_CORRECTOR,
+                                COD_AGENTE,
+                                P.TIPO_LIQ
+    					FROM :TEMP_PAGOS_DIRECTOS_RG P
+    					INNER JOIN :TEMP_BASES_2_RG B ON P.POSITIONSEQ = B.POSITIONSEQ
+    					INNER JOIN :BASES_TOTAL_IMPORTE_2_RG BT ON BT.POSITIONSEQ = B.POSITIONSEQ
+    					WHERE ((B.POS_PRIN = P.POS_PRIN AND (IFNULL(B.CAMBIO_AG_INSP,'0') = '0')) OR B.MANAGER_POS_PRIN = P.POS_PRIN OR B.CAPTADOR_POS_PRIN = P.POS_PRIN)
+    					--TIPO AGENTE
+                        AND P.TIPO_AGENTE != '82'
+                        --RAMO
+    					-- AND B.PRODUCTID LIKE '%'||RIGHT(P.EARNINGCODEID,5)||'%'
+    					--PERMANENCIA
+    					-- AND B.EVENTTYPEID = 'Pago Comercial' AND B.CODIGO_POLIZA = P.EARNINGGROUPID AND ESTADO = SUBSTRING(P.EARNINGCODEID,1,3)
+    					--TIPO CONCEPTO
+    					AND (CASE WHEN B.POS_PRIN = P.POS_PRIN OR B.MANAGER_POS_PRIN = P.POS_PRIN THEN B.DIF_INSP ELSE B.DIF_CAPT END) <> 0
+    					AND NOT EXISTS (
+    					    SELECT 1 
+    					    FROM EXT.FINAL_REPEXT_FILE_TEST X 
+    					    WHERE X.POS_PRIN       = P.POS_PRIN
+    					      AND X.PERIODSEQ      = P.PERIODSEQ
+    					      AND X.EARNINGCODEID  = P.EARNINGCODEID
+    					      AND X.EARNINGGROUPID = P.EARNINGGROUPID
+    					      AND X.TIPO_DOCUMENTO = P.TIPO_DOCUMENTO
+    					      AND X.ORDERID        = B.ORDERID
+    					      AND X.LINENUMBER     = B.LINENUMBER
+    					      AND X.SUBLINENUMBER  = B.SUBLINENUMBER
+    					      AND X.EVENTTYPEID    = B.EVENTTYPEID
+    					);
+    					
+    	CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_FINAL_PAGOS_BASES_2_RG: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');	
+    	
+    
+    	
+    	--LIQUIDACIÓN COMPLEMENTARIA
+		IF v_num_post > 1 AND i_tipo_reparto = 'CIERRE' THEN
+		
+			TEMP_PAGOS_DIRECTOS_2_RG_LC = SELECT SUM(IMPORTE) SUMA_PAGOS,PERIODSEQ,POS_PRIN,EARNINGGROUPID,EARNINGCODEID,DEPOSITO 
+				FROM :TEMP_FINAL_PAGOS_BASES_2_RG
+				WHERE TIPO_LIQ IN ('CIERRE','LIQ')
+				GROUP BY PERIODSEQ,POS_PRIN,EARNINGGROUPID,EARNINGCODEID,DEPOSITO;
+		
+			INSERT INTO EXT.FINAL_REPEXT_FILE_TEST("TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+		        ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+		        ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+		        ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ")
+		    SELECT "TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+		        ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE"*(-1),"TIPO_AGENTE","TIPO_DOCUMENTO",TF."EARNINGGROUPID"
+		        ,TF."EARNINGCODEID",TF.SUMA_IMPORTE,"DEPOSITSEQ",TF."DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+		        ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF",TF."POS_PRIN","POSITIONNAME","PERIODO",TF."PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ"
+		    FROM :TEMP_FINAL_PAGOS_BASES_2_RG TF 
+		    	INNER JOIN :TEMP_PAGOS_DIRECTOS_2_RG_LC TLC ON TF.PERIODSEQ = TLC.PERIODSEQ AND TF.POS_PRIN = TLC.POS_PRIN 
+		    	AND TF.EARNINGGROUPID = TLC.EARNINGGROUPID AND TF.EARNINGCODEID = TLC. EARNINGCODEID AND TF.DEPOSITO = TLC.DEPOSITO
+		    	AND 1 = (CASE WHEN SUMA_PAGOS <> SUMA_IMPORTE THEN 1 END); 
+		 END IF;
+    	-- FIN LIQUIDACIÓN COMPLEMENTARIA
+    	
+    	UPDATE F
+    	SET ESTADO_REPARTO = CASE 
+    		WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 2
+			WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 3
+			ELSE 4 
+		END
+		FROM EXT.FINAL_REPEXT_PAGOS_FILE_TEST F
+		INNER JOIN :TEMP_FINAL_PAGOS_BASES_2_RG T ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+		AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID;
+		
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_PAGOS_FILE_TEST ESTADOS ACTUALIZADOS: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+		
+		UPDATE F
+            SET ESTADO_REPARTO = CASE 
+    				WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 2
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 3
+					ELSE 4 
+				END --REPARTO CORRECTO
+			FROM :TEMP_REPEXT_PAGOS_REPARTO_FILE F
+			INNER JOIN :TEMP_FINAL_PAGOS_BASES_2_RG T ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+			AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+			WHERE 1 = (CASE 
+    				WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 1
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+					ELSE 0 
+				END)
+	--		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID
+			;
+        CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_REPEXT_PAGOS_REPARTO_FILE ESTADOS ACTUALIZADOS: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');   
+                                   
+		
+		INSERT INTO EXT.FINAL_REPEXT_FILE_TEST("TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+            ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+            ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+            ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ")
+        SELECT "TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+            ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+            ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+            ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ"
+        FROM :TEMP_FINAL_PAGOS_BASES_2_RG
+        WHERE 1 = (
+        	CASE 
+        		WHEN (IMPORTE_PAGO - IFNULL(SUMA_IMPORTE,0)) = 0 THEN 1
+    			WHEN (IMPORTE_PAGO - IFNULL(SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+    		ELSE 0 
+    		END);
+ 
+ 		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_FILE_TEST INSERTADOS: ' ||::ROWCOUNT, v_log_count, v_idproceso, 'info');				
+		---------------------------------------------------------------------------------------------------
+		
+		TEMP_FINAL_PAGOS_BASES_2_RG_DIF =
+			SELECT T.PERIODSEQ,T.POS_PRIN,T.TIPO_DOCUMENTO,T.DEPOSITSEQ,T.EARNINGCODEID,T.EARNINGGROUPID,T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0) AS DIF,
+					T.ORDERID,T.LINENUMBER,T.SUBLINENUMBER,T.EVENTTYPEID, T.COMPENSATIONDATE,
+				ROW_NUMBER() OVER(
+                      		PARTITION BY T.PERIODSEQ,T.POS_PRIN,T.TIPO_DOCUMENTO,T.DEPOSITSEQ,T.EARNINGCODEID,T.EARNINGGROUPID
+                      		--ORDER BY T.ORDERID
+                      ) AS RN_TRX
+			FROM :TEMP_FINAL_PAGOS_BASES_2_RG T
+			WHERE 1 = (CASE 
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 0
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+					ELSE 0 
+				END)
+		;
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_FINAL_PAGOS_BASES_2_RG_DIF: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+		UPDATE F
+    	SET F.IMPORTE = F.IMPORTE + T.DIF
+    	FROM EXT.FINAL_REPEXT_FILE_TEST F
+    	INNER JOIN :TEMP_FINAL_PAGOS_BASES_2_RG_DIF T  ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+		AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID
+		AND F.ORDERID = T.ORDERID AND F.LINENUMBER = T.LINENUMBER AND F.SUBLINENUMBER = T.SUBLINENUMBER AND F.EVENTTYPEID = T.EVENTTYPEID AND F.COMPENSATIONDATE = T.COMPENSATIONDATE
+		AND T.RN_TRX = 1
+		;
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_FILE_TEST IMPORTE_DIF: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+
+ 
+ -------------------------------------------------------------------------------------------    
+    -- SUBSTRING(CODEID,1,1) = 5
+    -------------------------------------------------------------------------------------------
+        -- PAGOS GROUPID: 03-RT
+    TEMP_PAGOS_DIRECTOS_5_03_RT = SELECT *
+    		FROM :TEMP_PAGOS_DIRECTOS
+    		WHERE SUBSTRING(EARNINGGROUPID,7,5) = '03-RT'
+    		AND SUBSTRING(EARNINGCODEID,1,1) = '5';
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_PAGOS_DIRECTOS_5_03_RT: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+	
+    
+    -- PAGOS GROUPID: 03-RG
+    TEMP_PAGOS_DIRECTOS_5_03_RG = SELECT *
+    		FROM :TEMP_PAGOS_DIRECTOS
+    		WHERE SUBSTRING(EARNINGGROUPID,7,5) = '03-RG'
+    		AND SUBSTRING(EARNINGCODEID,1,1) = '5';
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_PAGOS_DIRECTOS_5_03_RG: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+	
+		
+	-- PAGOS GROUPID: NOT 03-RT
+    TEMP_PAGOS_DIRECTOS_5_RT = SELECT *
+    		FROM :TEMP_PAGOS_DIRECTOS
+    		WHERE SUBSTRING(EARNINGGROUPID,7,2) != '03' 
+    		AND SUBSTRING(EARNINGGROUPID,10,2) = 'RT'
+    		AND SUBSTRING(EARNINGCODEID,1,1) = '5';
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_PAGOS_DIRECTOS_5_RT: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+	
+    
+    -- PAGOS GROUPID: NOT 03-RG
+    TEMP_PAGOS_DIRECTOS_5_RG = SELECT *
+    		FROM :TEMP_PAGOS_DIRECTOS
+    		WHERE SUBSTRING(EARNINGGROUPID,7,2) != '03'
+    		AND SUBSTRING(EARNINGGROUPID,10,2) = 'RG'
+    		AND SUBSTRING(EARNINGCODEID,1,1) = '5';
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_PAGOS_DIRECTOS_5_RG: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+	
+		
+		
+		---------------------------------------------------------------------------------------------------
+		-- 5_82_03_RT_MACB38P
+		---------------------------------------------------------------------------------------------------
+		--BASES
+		IF i_tipo_reparto = 'CIERRE' THEN
+			TEMP_BASES_5_82_03_RT_MACB38P = SELECT * 
+	    		FROM EXT.FINAL_BASES_REPARTO_POLIZA_FILE B
+	    		WHERE PERIODSEQ = i_periodSeq
+	    		--RAMO EARNINGGROUPID = '03-RT'
+	    		--AND PRODUCTID LIKE '032%'
+	    		;
+	    	CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_BASES_5_82_03_RT_MACB38P: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+	    ELSE 
+	    	TEMP_BASES_5_82_03_RT_MACB38P = SELECT * 
+    		FROM EXT.FINAL_BASES_REPARTO_POLIZA_FILE_NUEVA_BASE_REPARTO B
+    		WHERE PERIODSEQ = v_periodSeqAnterior
+    		--RAMO EARNINGGROUPID = '03-RT'
+    		--AND PRODUCTID LIKE '032%'
+    		;
+    		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_BASES_5_82_03_RT_MACB38P (BALANCE): ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+    	END IF;
+		
+			
+	 --    --BASES_TOTAL_IMPORTE
+		-- BASES_TOTAL_IMPORTE_5_82_03_RT_MACB38P = 
+		-- 	SELECT POSITIONSEQ, SUM(IMPORTE_COMISION) AS SUMA_IMPORTE
+		-- 	FROM :TEMP_BASES_5_82_03_RT_MACB38P
+		-- 	WHERE IMPORTE_COMISION <> 0
+		-- 	GROUP BY POSITIONSEQ;	
+			
+		--FINAL
+    	TEMP_FINAL_PAGOS_BASES_5_82_03_RT_MACB38P = SELECT P.PARTICIPANTSEQ,
+                                P.POSITIONSEQ,
+                                P.PERIODSEQ,
+                                :v_periodName AS PERIODO,
+                                P.POS_CALLIDUS POSITIONNAME,
+                                P.POS_PRIN,
+                                P.NIF,
+                                P.MANAGER_POS_PRIN,
+                                ORDERID,
+                                LINENUMBER,
+                                SUBLINENUMBER,
+                                EVENTTYPEID,
+                                PRODUCTID,
+                                CODIGO_POLIZA,
+                                COMPENSATIONDATE,
+                                ESTADO,
+                                P.PROGRAMA,
+                                P.TIPO_PAGO,
+                                P.DEPOSITO,
+                                P.DEPOSITSEQ,
+                                P.IMPORTE IMPORTE_PAGO,
+                                P.EARNINGCODEID,
+                                P.EARNINGGROUPID,
+                                P.TIPO_DOCUMENTO,
+                                P.TIPO_AGENTE,
+                                B.IMPORTE_COMISION AS IMPORTE,
+                                --SUM(B.IMPORTE_COMISION) OVER(PARTITION BY P.POSITIONSEQ) AS SUMA_IMPORTE,
+                                (SELECT SUM(IMPORTE_COMISION)
+                                	FROM :TEMP_BASES_5_82_03_RT_MACB38P S
+                                	WHERE S.POSITIONSEQ = B.POSITIONSEQ
+                                	AND S.PRODUCTID LIKE '%'||RIGHT(P.EARNINGCODEID,5)
+									AND S.EVENTTYPEID = 'Pago Comercial'
+                                ) AS SUMA_IMPORTE,
+								NULL AS TIPO_REPARTO,
+                                0 AS NUM_TRAMO,
+                                NULL AS REPARTO_TIPO_BASE,
+                                NULL AS REPARTO_PORCENTAJE,
+                                POLIZA_FISICA,
+                                POLIZA_CORREGIDA,
+                                PRIMA_CORREGIDA,
+                                PRIMA_NETA,
+                                PRIMA_NETA_ANUAL,
+                                PRIMA_COMIS_S4 PRIMA_COMIS,
+                                NULL AS COEF_TIPO_BASE,
+                                NULL AS COEF_CORRECTOR,
+                                COD_AGENTE,
+                                P.TIPO_LIQ
+    					FROM :TEMP_PAGOS_DIRECTOS_5_03_RT P
+    					INNER JOIN :TEMP_BASES_5_82_03_RT_MACB38P B ON P.POSITIONSEQ = B.POSITIONSEQ
+						--INNER JOIN :BASES_TOTAL_IMPORTE_5_82_03_RT_MACB38P BT ON BT.POSITIONSEQ = P.POSITIONSEQ
+    					--POSITION
+    					WHERE (B.POS_PRIN = P.POS_PRIN OR B.MANAGER_POS_PRIN = P.POS_PRIN OR B.MAN_ACT_POS_PRIN = P.POS_PRIN) 
+    					--TIPO AGENTE
+                        AND P.TIPO_AGENTE = '82'                        
+                        --RAMO
+    					AND B.PRODUCTID LIKE '%'||RIGHT(P.EARNINGCODEID,5)
+    					--PERMANENCIA
+    					AND B.EVENTTYPEID = 'Pago Comercial' AND B.CODIGO_POLIZA = P.EARNINGGROUPID AND ESTADO = SUBSTRING(P.EARNINGCODEID,1,3)
+    					--TIPO CONCEPTO
+    					AND B.IMPORTE_COMISION <> 0
+    					-- AND (ORDERID,LINENUMBER,SUBLINENUMBER,EVENTTYPEID) NOT IN ( 
+         --                           SELECT X.ORDERID,X.LINENUMBER,X.SUBLINENUMBER,X.EVENTTYPEID FROM EXT.FINAL_REPEXT_FILE_TEST X 
+         --                           WHERE X.POS_PRIN = P.POS_PRIN
+         --                               AND X.PERIODSEQ = P.PERIODSEQ
+         --                               AND X.EARNINGCODEID = P.EARNINGCODEID
+         --                               AND X.EARNINGGROUPID = P.EARNINGGROUPID
+         --                               AND X.TIPO_DOCUMENTO = P.TIPO_DOCUMENTO )
+    					
+						AND NOT EXISTS (
+							SELECT 1
+							FROM EXT.FINAL_REPEXT_FILE_TEST X 
+								WHERE X.POS_PRIN       = P.POS_PRIN
+									AND X.PERIODSEQ      = P.PERIODSEQ
+									AND X.EARNINGCODEID  = P.EARNINGCODEID
+									AND X.EARNINGGROUPID = P.EARNINGGROUPID
+									AND X.TIPO_DOCUMENTO = P.TIPO_DOCUMENTO
+									AND X.ORDERID        = B.ORDERID
+									AND X.LINENUMBER     = B.LINENUMBER
+									AND X.SUBLINENUMBER  = B.SUBLINENUMBER
+									AND X.EVENTTYPEID    = B.EVENTTYPEID
+							)
+    					;
+    	CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_FINAL_PAGOS_BASES_5_82_03_RT_MACB38P: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');	
+    	
+
+    	
+    	--LIQUIDACIÓN COMPLEMENTARIA
+		IF v_num_post > 1 AND i_tipo_reparto = 'CIERRE' THEN
+		
+			TEMP_PAGOS_DIRECTOS_5_82_03_RT_MACB38P_LC = SELECT SUM(IMPORTE) SUMA_PAGOS,PERIODSEQ,POS_PRIN,EARNINGGROUPID,EARNINGCODEID,DEPOSITO 
+				FROM :TEMP_FINAL_PAGOS_BASES_5_82_03_RT_MACB38P
+				WHERE TIPO_LIQ IN ('CIERRE','LIQ')
+				GROUP BY PERIODSEQ,POS_PRIN,EARNINGGROUPID,EARNINGCODEID,DEPOSITO;
+		
+			INSERT INTO EXT.FINAL_REPEXT_FILE_TEST("TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+		        ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+		        ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+		        ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ")
+		    SELECT "TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+		        ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE"*(-1),"TIPO_AGENTE","TIPO_DOCUMENTO",TF."EARNINGGROUPID"
+		        ,TF."EARNINGCODEID",TF.SUMA_IMPORTE,"DEPOSITSEQ",TF."DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+		        ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF",TF."POS_PRIN","POSITIONNAME","PERIODO",TF."PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ"
+		    FROM :TEMP_FINAL_PAGOS_BASES_5_82_03_RT_MACB38P TF 
+		    	INNER JOIN :TEMP_PAGOS_DIRECTOS_5_82_03_RT_MACB38P_LC TLC ON TF.PERIODSEQ = TLC.PERIODSEQ AND TF.POS_PRIN = TLC.POS_PRIN 
+		    	AND TF.EARNINGGROUPID = TLC.EARNINGGROUPID AND TF.EARNINGCODEID = TLC. EARNINGCODEID AND TF.DEPOSITO = TLC.DEPOSITO
+		    	AND 1 = (CASE WHEN SUMA_PAGOS <> SUMA_IMPORTE THEN 1 END); 
+		 END IF;
+    	-- FIN LIQUIDACIÓN COMPLEMENTARIA
+    	
+    	UPDATE F
+    	SET ESTADO_REPARTO = CASE 
+    		WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 2
+			WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 3
+			ELSE 4 
+		END
+		FROM EXT.FINAL_REPEXT_PAGOS_FILE_TEST F
+		INNER JOIN :TEMP_FINAL_PAGOS_BASES_5_82_03_RT_MACB38P T ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+		AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID;
+		
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_PAGOS_FILE_TEST ESTADOS ACTUALIZADOS: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+		
+		UPDATE F
+            SET ESTADO_REPARTO = CASE 
+    				WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 2
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 3
+					ELSE 4 
+				END --REPARTO CORRECTO
+			FROM :TEMP_REPEXT_PAGOS_REPARTO_FILE F
+			INNER JOIN :TEMP_FINAL_PAGOS_BASES_5_82_03_RT_MACB38P T ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+			AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+			WHERE 1 = (CASE 
+    				WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 1
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+					ELSE 0 
+				END)
+	--		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID
+			;
+        CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_REPEXT_PAGOS_REPARTO_FILE ESTADOS ACTUALIZADOS: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');   
+                                   
+		
+		INSERT INTO EXT.FINAL_REPEXT_FILE_TEST("TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+            ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+            ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+            ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ")
+        SELECT "TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+            ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+            ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+            ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ"
+        FROM :TEMP_FINAL_PAGOS_BASES_5_82_03_RT_MACB38P
+        WHERE 1 = (
+        	CASE 
+        		WHEN (IMPORTE_PAGO - IFNULL(SUMA_IMPORTE,0)) = 0 THEN 1
+    			WHEN (IMPORTE_PAGO - IFNULL(SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+    		ELSE 0 
+    		END);
+
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_FILE_TEST INSERTADOS: ' ||::ROWCOUNT, v_log_count, v_idproceso, 'info');	
+		---------------------------------------------------------------------------------------------------
+		
+		TEMP_FINAL_PAGOS_BASES_5_82_03_RT_MACB38P_DIF =
+			SELECT T.PERIODSEQ,T.POS_PRIN,T.TIPO_DOCUMENTO,T.DEPOSITSEQ,T.EARNINGCODEID,T.EARNINGGROUPID,T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0) AS DIF,
+					T.ORDERID,T.LINENUMBER,T.SUBLINENUMBER,T.EVENTTYPEID, T.COMPENSATIONDATE,
+				ROW_NUMBER() OVER(
+                      		PARTITION BY T.PERIODSEQ,T.POS_PRIN,T.TIPO_DOCUMENTO,T.DEPOSITSEQ,T.EARNINGCODEID,T.EARNINGGROUPID
+                      		--ORDER BY T.ORDERID
+                      ) AS RN_TRX
+			FROM :TEMP_FINAL_PAGOS_BASES_5_82_03_RT_MACB38P T
+			WHERE 1 = (CASE 
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 0
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+					ELSE 0 
+				END)
+		;
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_FINAL_PAGOS_BASES_5_82_03_RT_MACB38P_DIF: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+		UPDATE F
+    	SET F.IMPORTE = F.IMPORTE + T.DIF
+    	FROM EXT.FINAL_REPEXT_FILE_TEST F
+    	INNER JOIN :TEMP_FINAL_PAGOS_BASES_5_82_03_RT_MACB38P_DIF T  ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+		AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID
+		AND F.ORDERID = T.ORDERID AND F.LINENUMBER = T.LINENUMBER AND F.SUBLINENUMBER = T.SUBLINENUMBER AND F.EVENTTYPEID = T.EVENTTYPEID AND F.COMPENSATIONDATE = T.COMPENSATIONDATE
+		AND T.RN_TRX = 1
+		;
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_FILE_TEST IMPORTE_DIF: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');		
+		
+		---------------------------------------------------------------------------------------------------
+		-- 5_82_03_RG_MACB38P
+		---------------------------------------------------------------------------------------------------
+		--BASES
+		IF i_tipo_reparto = 'CIERRE' THEN
+			TEMP_BASES_5_82_03_RG_MACB38P = SELECT * 
+	    		FROM EXT.FINAL_BASES_REPARTO_POLIZA_FILE B
+	    		WHERE PERIODSEQ = i_periodSeq
+	    		--RAMO EARNINGGROUPID = '03-RT'
+	    		--AND PRODUCTID LIKE '032%'
+	    		;
+	    	CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_BASES_5_82_03_RG_MACB38P: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+	    ELSE
+	    	TEMP_BASES_5_82_03_RG_MACB38P = SELECT * 
+    		FROM EXT.FINAL_BASES_REPARTO_POLIZA_FILE_NUEVA_BASE_REPARTO B
+    		WHERE PERIODSEQ = v_periodSeqAnterior
+    		--RAMO EARNINGGROUPID = '03-RT'
+    		--AND PRODUCTID LIKE '032%'
+    		;
+    		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_BASES_5_82_03_RG_MACB38P (BALANCE): ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+    	END IF;
+		
+
+		--      --BASES_TOTAL_IMPORTE
+		-- BASES_TOTAL_IMPORTE_5_82_03_RG_MACB38P = 
+		-- 	SELECT POSITIONSEQ, SUM(IMPORTE_COMISION) AS SUMA_IMPORTE
+		-- 	FROM :TEMP_BASES_5_82_03_RG_MACB38P
+		-- 	WHERE IMPORTE_COMISION <> 0
+		-- 	GROUP BY POSITIONSEQ;				
+
+			
+		--FINAL
+    	TEMP_FINAL_PAGOS_BASES_5_82_03_RG_MACB38P = SELECT P.PARTICIPANTSEQ,
+                                P.POSITIONSEQ,
+                                P.PERIODSEQ,
+                                :v_periodName AS PERIODO,
+                                P.POS_CALLIDUS POSITIONNAME,
+                                P.POS_PRIN,
+                                P.NIF,
+                                P.MANAGER_POS_PRIN,
+                                ORDERID,
+                                LINENUMBER,
+                                SUBLINENUMBER,
+                                EVENTTYPEID,
+                                PRODUCTID,
+                                CODIGO_POLIZA,
+                                COMPENSATIONDATE,
+                                ESTADO,
+                                P.PROGRAMA,
+                                P.TIPO_PAGO,
+                                P.DEPOSITO,
+                                P.DEPOSITSEQ,
+                                P.IMPORTE IMPORTE_PAGO,
+                                P.EARNINGCODEID,
+                                P.EARNINGGROUPID,
+                                P.TIPO_DOCUMENTO,
+                                P.TIPO_AGENTE,
+                                B.IMPORTE_COMISION AS IMPORTE,
+                                (SELECT SUM(IMPORTE_COMISION)
+                                	FROM :TEMP_BASES_5_82_03_RG_MACB38P S
+                                	WHERE S.POSITIONSEQ = B.POSITIONSEQ
+                                	AND S.PRODUCTID LIKE '%'||RIGHT(P.EARNINGCODEID,5)
+									AND S.EVENTTYPEID = 'Pago Comercial'
+                                ) AS SUMA_IMPORTE,
+								NULL AS TIPO_REPARTO,
+                                0 AS NUM_TRAMO,
+                                NULL AS REPARTO_TIPO_BASE,
+                                NULL AS REPARTO_PORCENTAJE,
+                                POLIZA_FISICA,
+                                POLIZA_CORREGIDA,
+                                PRIMA_CORREGIDA,
+                                PRIMA_NETA,
+                                PRIMA_NETA_ANUAL,
+                                PRIMA_COMIS_S4 PRIMA_COMIS,
+                                NULL AS COEF_TIPO_BASE,
+                                NULL AS COEF_CORRECTOR,
+                                COD_AGENTE,
+                                P.TIPO_LIQ
+    					FROM :TEMP_PAGOS_DIRECTOS_5_03_RG P
+    					INNER JOIN :TEMP_BASES_5_82_03_RG_MACB38P B ON P.POSITIONSEQ = B.POSITIONSEQ
+						--INNER JOIN :BASES_TOTAL_IMPORTE_5_82_03_RG_MACB38P BT ON BT.POSITIONSEQ = P.POSITIONSEQ
+    					WHERE (B.POS_PRIN = P.POS_PRIN OR B.MANAGER_POS_PRIN = P.POS_PRIN OR B.MAN_ACT_POS_PRIN = P.POS_PRIN) 
+    					--TIPO AGENTE
+                        AND P.TIPO_AGENTE = '82'
+                        --RAMO
+    					AND B.PRODUCTID LIKE '%'||RIGHT(P.EARNINGCODEID,5)
+    					--PERMANENCIA
+    					AND B.EVENTTYPEID = 'Pago Comercial' AND B.CODIGO_POLIZA = P.EARNINGGROUPID AND ESTADO = SUBSTRING(P.EARNINGCODEID,1,3)
+    					--TIPO CONCEPTO
+    					AND B.IMPORTE_COMISION <> 0
+    					 --AND (ORDERID,LINENUMBER,SUBLINENUMBER,EVENTTYPEID) NOT IN ( 
+          --                          SELECT X.ORDERID,X.LINENUMBER,X.SUBLINENUMBER,X.EVENTTYPEID FROM EXT.FINAL_REPEXT_FILE_TEST X 
+          --                          WHERE X.POS_PRIN = P.POS_PRIN
+          --                              AND X.PERIODSEQ = P.PERIODSEQ
+          --                              AND X.EARNINGCODEID = P.EARNINGCODEID
+          --                              AND X.EARNINGGROUPID = P.EARNINGGROUPID
+          --                              AND X.TIPO_DOCUMENTO = P.TIPO_DOCUMENTO )
+    					
+ 						AND NOT EXISTS (
+							SELECT 1
+							FROM EXT.FINAL_REPEXT_FILE_TEST X 
+								WHERE X.POS_PRIN       = P.POS_PRIN
+									AND X.PERIODSEQ      = P.PERIODSEQ
+									AND X.EARNINGCODEID  = P.EARNINGCODEID
+									AND X.EARNINGGROUPID = P.EARNINGGROUPID
+									AND X.TIPO_DOCUMENTO = P.TIPO_DOCUMENTO
+									AND X.ORDERID        = B.ORDERID
+									AND X.LINENUMBER     = B.LINENUMBER
+									AND X.SUBLINENUMBER  = B.SUBLINENUMBER
+									AND X.EVENTTYPEID    = B.EVENTTYPEID
+							)
+						
+    					;
+    	CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_FINAL_PAGOS_BASES_5_82_03_RG_MACB38P: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');	
+    	
+    
+    	
+    	--LIQUIDACIÓN COMPLEMENTARIA
+		IF v_num_post > 1 AND i_tipo_reparto = 'CIERRE' THEN
+		
+			TEMP_PAGOS_DIRECTOS_5_82_03_RG_MACB38P_LC = SELECT SUM(IMPORTE) SUMA_PAGOS,PERIODSEQ,POS_PRIN,EARNINGGROUPID,EARNINGCODEID,DEPOSITO 
+				FROM :TEMP_FINAL_PAGOS_BASES_5_82_03_RG_MACB38P
+				WHERE TIPO_LIQ IN ('CIERRE','LIQ')
+				GROUP BY PERIODSEQ,POS_PRIN,EARNINGGROUPID,EARNINGCODEID,DEPOSITO;
+		
+			INSERT INTO EXT.FINAL_REPEXT_FILE_TEST("TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+		        ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+		        ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+		        ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ")
+		    SELECT "TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+		        ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE"*(-1),"TIPO_AGENTE","TIPO_DOCUMENTO",TF."EARNINGGROUPID"
+		        ,TF."EARNINGCODEID",TF.SUMA_IMPORTE,"DEPOSITSEQ",TF."DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+		        ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF",TF."POS_PRIN","POSITIONNAME","PERIODO",TF."PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ"
+		    FROM :TEMP_FINAL_PAGOS_BASES_5_82_03_RG_MACB38P TF 
+		    	INNER JOIN :TEMP_PAGOS_DIRECTOS_5_82_03_RG_MACB38P_LC TLC ON TF.PERIODSEQ = TLC.PERIODSEQ AND TF.POS_PRIN = TLC.POS_PRIN 
+		    	AND TF.EARNINGGROUPID = TLC.EARNINGGROUPID AND TF.EARNINGCODEID = TLC. EARNINGCODEID AND TF.DEPOSITO = TLC.DEPOSITO
+		    	AND 1 = (CASE WHEN SUMA_PAGOS <> SUMA_IMPORTE THEN 1 END); 
+		 END IF;
+    	-- FIN LIQUIDACIÓN COMPLEMENTARIA
+    	
+    	UPDATE F
+    	SET ESTADO_REPARTO = CASE 
+    		WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 2
+			WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 3
+			ELSE 4 
+		END
+		FROM EXT.FINAL_REPEXT_PAGOS_FILE_TEST F
+		INNER JOIN :TEMP_FINAL_PAGOS_BASES_5_82_03_RG_MACB38P T ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+		AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID;
+		
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_PAGOS_FILE_TEST ESTADOS ACTUALIZADOS: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+	
+		UPDATE F
+            SET ESTADO_REPARTO = CASE 
+    				WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 2
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 3
+					ELSE 4 
+				END --REPARTO CORRECTO
+			FROM :TEMP_REPEXT_PAGOS_REPARTO_FILE F
+			INNER JOIN :TEMP_FINAL_PAGOS_BASES_5_82_03_RG_MACB38P T ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+			AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+			WHERE 1 = (CASE 
+    				WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 1
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+					ELSE 0 
+				END)
+	--		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID
+			;
+        CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_REPEXT_PAGOS_REPARTO_FILE ESTADOS ACTUALIZADOS: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');   
+                                   
+		
+		INSERT INTO EXT.FINAL_REPEXT_FILE_TEST("TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+            ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+            ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+            ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ")
+        SELECT "TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+            ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+            ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+            ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ"
+        FROM :TEMP_FINAL_PAGOS_BASES_5_82_03_RG_MACB38P
+        WHERE 1 = (
+        	CASE 
+        		WHEN (IMPORTE_PAGO - IFNULL(SUMA_IMPORTE,0)) = 0 THEN 1
+    			WHEN (IMPORTE_PAGO - IFNULL(SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+    		ELSE 0 
+    		END);
+
+
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_FILE_TEST INSERTADOS: ' ||::ROWCOUNT, v_log_count, v_idproceso, 'info');	
+		---------------------------------------------------------------------------------------------------
+		
+		TEMP_FINAL_PAGOS_BASES_5_82_03_RG_MACB38P_DIF =
+			SELECT T.PERIODSEQ,T.POS_PRIN,T.TIPO_DOCUMENTO,T.DEPOSITSEQ,T.EARNINGCODEID,T.EARNINGGROUPID,T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0) AS DIF,
+				T.ORDERID,T.LINENUMBER,T.SUBLINENUMBER,T.EVENTTYPEID, T.COMPENSATIONDATE,
+				ROW_NUMBER() OVER(
+                      		PARTITION BY T.PERIODSEQ,T.POS_PRIN,T.TIPO_DOCUMENTO,T.DEPOSITSEQ,T.EARNINGCODEID,T.EARNINGGROUPID
+                      		--ORDER BY T.ORDERID
+                      ) AS RN_TRX
+			FROM :TEMP_FINAL_PAGOS_BASES_5_82_03_RG_MACB38P T
+			WHERE 1 = (CASE 
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 0
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+					ELSE 0 
+				END)
+		;
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_FINAL_PAGOS_BASES_5_82_03_RG_MACB38P_DIF: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+		UPDATE F
+    	SET F.IMPORTE = F.IMPORTE + T.DIF
+    	FROM EXT.FINAL_REPEXT_FILE_TEST F
+    	INNER JOIN :TEMP_FINAL_PAGOS_BASES_5_82_03_RG_MACB38P_DIF T  ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+		AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID
+		AND F.ORDERID = T.ORDERID AND F.LINENUMBER = T.LINENUMBER AND F.SUBLINENUMBER = T.SUBLINENUMBER AND F.EVENTTYPEID = T.EVENTTYPEID AND F.COMPENSATIONDATE = T.COMPENSATIONDATE
+		AND T.RN_TRX = 1
+		;
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_FILE_TEST IMPORTE_DIF: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');		
+		
+	
+		---------------------------------------------------------------------------------------------------
+		-- 5_82_03_RT
+		---------------------------------------------------------------------------------------------------
+		--BASES
+		IF i_tipo_reparto = 'CIERRE' THEN
+			TEMP_BASES_5_82_03_RT = SELECT * 
+	    		FROM EXT.FINAL_BASES_REPARTO_POLIZA_FILE B
+	    		WHERE PERIODSEQ = i_periodSeq
+	    		-- EARNINGGROUPID = '03-RT'
+	    		--RAMO
+	    		AND PRODUCTID LIKE '032%'
+	    		;
+	    	CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_BASES_5_82_03_RT: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+	    ELSE 
+	    	TEMP_BASES_5_82_03_RT = SELECT * 
+    		FROM EXT.FINAL_BASES_REPARTO_POLIZA_FILE_NUEVA_BASE_REPARTO B
+    		WHERE PERIODSEQ = v_periodSeqAnterior
+    		-- EARNINGGROUPID = '03-RT'
+    		--RAMO
+    		AND PRODUCTID LIKE '032%'
+    		;
+    		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_BASES_5_82_03_RT (BALANCE): ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+    	END IF;
+		
+	
+		     --BASES_TOTAL_IMPORTE
+		BASES_TOTAL_IMPORTE_5_82_03_RT = 
+			SELECT POSITIONSEQ, SUM(LOC_RESP) AS SUMA_IMPORTE
+			FROM :TEMP_BASES_5_82_03_RT
+			WHERE LOC_RESP <> 0
+			GROUP BY POSITIONSEQ;		
+			
+		--FINAL
+    	TEMP_FINAL_PAGOS_BASES_5_82_03_RT = SELECT P.PARTICIPANTSEQ,
+                                P.POSITIONSEQ,
+                                P.PERIODSEQ,
+                                :v_periodName AS PERIODO,
+                                P.POS_CALLIDUS POSITIONNAME,
+                                P.POS_PRIN,
+                                P.NIF,
+                                P.MANAGER_POS_PRIN,
+                                ORDERID,
+                                LINENUMBER,
+                                SUBLINENUMBER,
+                                EVENTTYPEID,
+                                PRODUCTID,
+                                CODIGO_POLIZA,
+                                COMPENSATIONDATE,
+                                ESTADO,
+                                P.PROGRAMA,
+                                P.TIPO_PAGO,
+                                P.DEPOSITO,
+                                P.DEPOSITSEQ,
+                                P.IMPORTE IMPORTE_PAGO,
+                                P.EARNINGCODEID,
+                                P.EARNINGGROUPID,
+                                P.TIPO_DOCUMENTO,
+                                P.TIPO_AGENTE,
+                                B.LOC_RESP AS IMPORTE,
+                                BT.SUMA_IMPORTE AS SUMA_IMPORTE,
+                                NULL AS TIPO_REPARTO,
+                                0 AS NUM_TRAMO,
+                                NULL AS REPARTO_TIPO_BASE,
+                                NULL AS REPARTO_PORCENTAJE,
+                                POLIZA_FISICA,
+                                POLIZA_CORREGIDA,
+                                PRIMA_CORREGIDA,
+                                PRIMA_NETA,
+                                PRIMA_NETA_ANUAL,
+                                PRIMA_COMIS_S4 PRIMA_COMIS,
+                                NULL AS COEF_TIPO_BASE,
+                                NULL AS COEF_CORRECTOR,
+                                COD_AGENTE,
+                                P.TIPO_LIQ
+    					FROM :TEMP_PAGOS_DIRECTOS_5_03_RT P
+    					INNER JOIN :TEMP_BASES_5_82_03_RT B ON P.POSITIONSEQ = B.POSITIONSEQ
+						INNER JOIN :BASES_TOTAL_IMPORTE_5_82_03_RT BT ON BT.POSITIONSEQ = P.POSITIONSEQ
+    					WHERE 
+    					--POSTION
+    					(B.POS_PRIN = P.POS_PRIN OR B.MANAGER_POS_PRIN = P.POS_PRIN OR B.MAN_ACT_POS_PRIN = P.POS_PRIN) 
+    					--TIPO AGENTE
+                        AND P.TIPO_AGENTE = '82'
+                        --RAMO
+    					--PERMANENCIA
+    					--TIPO CONCEPTO
+    					AND B.LOC_RESP <> 0
+    					AND (ORDERID,LINENUMBER,SUBLINENUMBER,EVENTTYPEID) NOT IN ( 
+                                    SELECT X.ORDERID,X.LINENUMBER,X.SUBLINENUMBER,X.EVENTTYPEID FROM EXT.FINAL_REPEXT_FILE_TEST X 
+                                    WHERE X.POS_PRIN = P.POS_PRIN
+                                        AND X.PERIODSEQ = P.PERIODSEQ
+                                        AND X.EARNINGCODEID = P.EARNINGCODEID
+                                        AND X.EARNINGGROUPID = P.EARNINGGROUPID
+                                        AND X.TIPO_DOCUMENTO = P.TIPO_DOCUMENTO )
+    					
+    					;
+    	CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_FINAL_PAGOS_BASES_5_82_03_RT: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');	
+    	
+    
+    	
+    	--LIQUIDACIÓN COMPLEMENTARIA
+		IF v_num_post > 1 AND i_tipo_reparto = 'CIERRE' THEN
+		
+			TEMP_PAGOS_DIRECTOS_5_82_03_RT_LC = SELECT SUM(IMPORTE) SUMA_PAGOS,PERIODSEQ,POS_PRIN,EARNINGGROUPID,EARNINGCODEID,DEPOSITO 
+				FROM :TEMP_FINAL_PAGOS_BASES_5_82_03_RT
+				WHERE TIPO_LIQ IN ('CIERRE','LIQ')
+				GROUP BY PERIODSEQ,POS_PRIN,EARNINGGROUPID,EARNINGCODEID,DEPOSITO;
+		
+			INSERT INTO EXT.FINAL_REPEXT_FILE_TEST("TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+		        ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+		        ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+		        ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ")
+		    SELECT "TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+		        ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE"*(-1),"TIPO_AGENTE","TIPO_DOCUMENTO",TF."EARNINGGROUPID"
+		        ,TF."EARNINGCODEID",TF.SUMA_IMPORTE,"DEPOSITSEQ",TF."DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+		        ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF",TF."POS_PRIN","POSITIONNAME","PERIODO",TF."PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ"
+		    FROM :TEMP_FINAL_PAGOS_BASES_5_82_03_RT TF 
+		    	INNER JOIN :TEMP_PAGOS_DIRECTOS_5_82_03_RT_LC TLC ON TF.PERIODSEQ = TLC.PERIODSEQ AND TF.POS_PRIN = TLC.POS_PRIN 
+		    	AND TF.EARNINGGROUPID = TLC.EARNINGGROUPID AND TF.EARNINGCODEID = TLC. EARNINGCODEID AND TF.DEPOSITO = TLC.DEPOSITO
+		    	AND 1 = (CASE WHEN SUMA_PAGOS <> SUMA_IMPORTE THEN 1 END); 
+		 END IF;
+    	-- FIN LIQUIDACIÓN COMPLEMENTARIA
+    	
+    	UPDATE F
+    	SET ESTADO_REPARTO = CASE 
+    		WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 2
+			WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 3
+			ELSE 4 
+		END
+		FROM EXT.FINAL_REPEXT_PAGOS_FILE_TEST F
+		INNER JOIN :TEMP_FINAL_PAGOS_BASES_5_82_03_RT T ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+		AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID;
+		
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_PAGOS_FILE_TEST ESTADOS ACTUALIZADOS: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+		
+		UPDATE F
+            SET ESTADO_REPARTO = CASE 
+    				WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 2
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 3
+					ELSE 4 
+				END --REPARTO CORRECTO
+			FROM :TEMP_REPEXT_PAGOS_REPARTO_FILE F
+			INNER JOIN :TEMP_FINAL_PAGOS_BASES_5_82_03_RT T ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+			AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+			WHERE 1 = (CASE 
+    				WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 1
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+					ELSE 0 
+				END)
+	--		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID
+			;
+        CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_REPEXT_PAGOS_REPARTO_FILE ESTADOS ACTUALIZADOS: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');   
+                                   
+		
+		INSERT INTO EXT.FINAL_REPEXT_FILE_TEST("TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+            ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+            ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+            ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ")
+        SELECT "TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+            ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+            ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+            ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ"
+        FROM :TEMP_FINAL_PAGOS_BASES_5_82_03_RT
+        WHERE 1 = (
+        	CASE 
+        		WHEN (IMPORTE_PAGO - IFNULL(SUMA_IMPORTE,0)) = 0 THEN 1
+    			WHEN (IMPORTE_PAGO - IFNULL(SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+    		ELSE 0 
+    		END);
+
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_FILE_TEST INSERTADOS: ' ||::ROWCOUNT, v_log_count, v_idproceso, 'info');	
+		---------------------------------------------------------------------------------------------------
+		
+		TEMP_FINAL_PAGOS_BASES_5_82_03_RT_DIF =
+			SELECT T.PERIODSEQ,T.POS_PRIN,T.TIPO_DOCUMENTO,T.DEPOSITSEQ,T.EARNINGCODEID,T.EARNINGGROUPID,T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0) AS DIF,
+				T.ORDERID,T.LINENUMBER,T.SUBLINENUMBER,T.EVENTTYPEID, T.COMPENSATIONDATE,
+				ROW_NUMBER() OVER(
+                      		PARTITION BY T.PERIODSEQ,T.POS_PRIN,T.TIPO_DOCUMENTO,T.DEPOSITSEQ,T.EARNINGCODEID,T.EARNINGGROUPID
+                      		--ORDER BY T.ORDERID
+                      ) AS RN_TRX
+			FROM :TEMP_FINAL_PAGOS_BASES_5_82_03_RT T
+			WHERE 1 = (CASE 
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 0
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+					ELSE 0 
+				END)
+		;
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_FINAL_PAGOS_BASES_5_82_03_RT_DIF: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+		UPDATE F
+    	SET F.IMPORTE = F.IMPORTE + T.DIF
+    	FROM EXT.FINAL_REPEXT_FILE_TEST F
+    	INNER JOIN :TEMP_FINAL_PAGOS_BASES_5_82_03_RT_DIF T  ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+		AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID
+		AND F.ORDERID = T.ORDERID AND F.LINENUMBER = T.LINENUMBER AND F.SUBLINENUMBER = T.SUBLINENUMBER AND F.EVENTTYPEID = T.EVENTTYPEID AND F.COMPENSATIONDATE = T.COMPENSATIONDATE
+		AND T.RN_TRX = 1
+		;
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_FILE_TEST IMPORTE_DIF: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');		
+		
+		
+		---------------------------------------------------------------------------------------------------
+		-- 5_82_03_RG
+		---------------------------------------------------------------------------------------------------
+		--BASES
+		IF i_tipo_reparto = 'CIERRE' THEN
+			TEMP_BASES_5_82_03_RG = SELECT * 
+	    		FROM EXT.FINAL_BASES_REPARTO_POLIZA_FILE B
+	    		WHERE PERIODSEQ = i_periodSeq
+	    		-- EARNINGGROUPID = '03-RG'
+	    		AND PRODUCTID LIKE '03%' AND PRODUCTID NOT LIKE '032%'
+	    		;
+	    	CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_BASES_5_82_03_RG: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+	    ELSE
+	    	TEMP_BASES_5_82_03_RG = SELECT * 
+    		FROM EXT.FINAL_BASES_REPARTO_POLIZA_FILE_NUEVA_BASE_REPARTO B
+    		WHERE PERIODSEQ = v_periodSeqAnterior
+    		-- EARNINGGROUPID = '03-RG'
+    		AND PRODUCTID LIKE '03%' AND PRODUCTID NOT LIKE '032%'
+    		;
+    		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_BASES_5_82_03_RG (BALANCE): ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+    	END IF;
+			
+		
+		     --BASES_TOTAL_IMPORTE
+		BASES_TOTAL_IMPORTE_5_82_03_RG = 
+			SELECT POSITIONSEQ, SUM(LOC_RESP) AS SUMA_IMPORTE
+			FROM :TEMP_BASES_5_82_03_RG
+			WHERE LOC_RESP <> 0
+			GROUP BY POSITIONSEQ;		
+			
+		--FINAL
+    	TEMP_FINAL_PAGOS_BASES_5_82_03_RG = SELECT P.PARTICIPANTSEQ,
+                                P.POSITIONSEQ,
+                                P.PERIODSEQ,
+                                :v_periodName AS PERIODO,
+                                P.POS_CALLIDUS POSITIONNAME,
+                                P.POS_PRIN,
+                                P.NIF,
+                                P.MANAGER_POS_PRIN,
+                                ORDERID,
+                                LINENUMBER,
+                                SUBLINENUMBER,
+                                EVENTTYPEID,
+                                PRODUCTID,
+                                CODIGO_POLIZA,
+                                COMPENSATIONDATE,
+                                ESTADO,
+                                P.PROGRAMA,
+                                P.TIPO_PAGO,
+                                P.DEPOSITO,
+                                P.DEPOSITSEQ,
+                                P.IMPORTE IMPORTE_PAGO,
+                                P.EARNINGCODEID,
+                                P.EARNINGGROUPID,
+                                P.TIPO_DOCUMENTO,
+                                P.TIPO_AGENTE,
+                                B.LOC_RESP AS IMPORTE,
+                                BT.SUMA_IMPORTE AS SUMA_IMPORTE,
+                                NULL AS TIPO_REPARTO,
+                                0 AS NUM_TRAMO,
+                                NULL AS REPARTO_TIPO_BASE,
+                                NULL AS REPARTO_PORCENTAJE,
+                                POLIZA_FISICA,
+                                POLIZA_CORREGIDA,
+                                PRIMA_CORREGIDA,
+                                PRIMA_NETA,
+                                PRIMA_NETA_ANUAL,
+                                PRIMA_COMIS_S4 PRIMA_COMIS,
+                                NULL AS COEF_TIPO_BASE,
+                                NULL AS COEF_CORRECTOR,
+                                COD_AGENTE,
+                                P.TIPO_LIQ
+    					FROM :TEMP_PAGOS_DIRECTOS_5_03_RG P
+						INNER JOIN :BASES_TOTAL_IMPORTE_5_82_03_RG BT ON BT.POSITIONSEQ = P.POSITIONSEQ
+    					INNER JOIN :TEMP_BASES_5_82_03_RG B ON P.POSITIONSEQ = B.POSITIONSEQ
+    					WHERE 
+    					--POSITION
+    					(B.POS_PRIN = P.POS_PRIN OR B.MANAGER_POS_PRIN = P.POS_PRIN OR B.MAN_ACT_POS_PRIN = P.POS_PRIN) 
+    					--TIPO AGENTE
+                        AND P.TIPO_AGENTE = '82'
+                        --RAMO
+    					--PERMANENCIA
+    					--TIPO CONCEPTO
+    					AND B.LOC_RESP <> 0
+    					-- AND (ORDERID,LINENUMBER,SUBLINENUMBER,EVENTTYPEID) NOT IN ( 
+         --                           SELECT X.ORDERID,X.LINENUMBER,X.SUBLINENUMBER,X.EVENTTYPEID FROM EXT.FINAL_REPEXT_FILE_TEST X 
+         --                           WHERE X.POS_PRIN = P.POS_PRIN
+         --                               AND X.PERIODSEQ = P.PERIODSEQ
+         --                               AND X.EARNINGCODEID = P.EARNINGCODEID
+         --                               AND X.EARNINGGROUPID = P.EARNINGGROUPID
+         --                               AND X.TIPO_DOCUMENTO = P.TIPO_DOCUMENTO )
+    					
+ 						AND NOT EXISTS (
+							SELECT 1
+							FROM EXT.FINAL_REPEXT_FILE_TEST X 
+								WHERE X.POS_PRIN       = P.POS_PRIN
+									AND X.PERIODSEQ      = P.PERIODSEQ
+									AND X.EARNINGCODEID  = P.EARNINGCODEID
+									AND X.EARNINGGROUPID = P.EARNINGGROUPID
+									AND X.TIPO_DOCUMENTO = P.TIPO_DOCUMENTO
+									AND X.ORDERID        = B.ORDERID
+									AND X.LINENUMBER     = B.LINENUMBER
+									AND X.SUBLINENUMBER  = B.SUBLINENUMBER
+									AND X.EVENTTYPEID    = B.EVENTTYPEID
+							)
+						
+    					;
+    	CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_FINAL_PAGOS_BASES_5_82_03_RG: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');	
+    	
+    	
+    	
+    	--LIQUIDACIÓN COMPLEMENTARIA
+		IF v_num_post > 1 AND i_tipo_reparto = 'CIERRE' THEN
+		
+			TEMP_PAGOS_DIRECTOS_5_82_03_RG_LC = SELECT SUM(IMPORTE) SUMA_PAGOS,PERIODSEQ,POS_PRIN,EARNINGGROUPID,EARNINGCODEID,DEPOSITO 
+				FROM :TEMP_FINAL_PAGOS_BASES_5_82_03_RG
+				WHERE TIPO_LIQ IN ('CIERRE','LIQ')
+				GROUP BY PERIODSEQ,POS_PRIN,EARNINGGROUPID,EARNINGCODEID,DEPOSITO;
+		
+			INSERT INTO EXT.FINAL_REPEXT_FILE_TEST("TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+		        ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+		        ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+		        ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ")
+		    SELECT "TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+		        ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE"*(-1),"TIPO_AGENTE","TIPO_DOCUMENTO",TF."EARNINGGROUPID"
+		        ,TF."EARNINGCODEID",TF.SUMA_IMPORTE,"DEPOSITSEQ",TF."DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+		        ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF",TF."POS_PRIN","POSITIONNAME","PERIODO",TF."PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ"
+		    FROM :TEMP_FINAL_PAGOS_BASES_5_82_03_RG TF 
+		    	INNER JOIN :TEMP_PAGOS_DIRECTOS_5_82_03_RG_LC TLC ON TF.PERIODSEQ = TLC.PERIODSEQ AND TF.POS_PRIN = TLC.POS_PRIN 
+		    	AND TF.EARNINGGROUPID = TLC.EARNINGGROUPID AND TF.EARNINGCODEID = TLC. EARNINGCODEID AND TF.DEPOSITO = TLC.DEPOSITO
+		    	AND 1 = (CASE WHEN SUMA_PAGOS <> SUMA_IMPORTE THEN 1 END); 
+		 END IF;
+    	-- FIN LIQUIDACIÓN COMPLEMENTARIA
+    	
+    	UPDATE F
+    	SET ESTADO_REPARTO = CASE 
+    		WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 2
+			WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 3
+			ELSE 4 
+		END
+		FROM EXT.FINAL_REPEXT_PAGOS_FILE_TEST F
+		INNER JOIN :TEMP_FINAL_PAGOS_BASES_5_82_03_RG T ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+		AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID;
+		
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_PAGOS_FILE_TEST ESTADOS ACTUALIZADOS: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+		
+		
+		UPDATE F
+            SET ESTADO_REPARTO = CASE 
+    				WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 2
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 3
+					ELSE 4 
+				END --REPARTO CORRECTO
+			FROM :TEMP_REPEXT_PAGOS_REPARTO_FILE F
+			INNER JOIN :TEMP_FINAL_PAGOS_BASES_5_82_03_RG T ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+			AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+			WHERE 1 = (CASE 
+    				WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 1
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+					ELSE 0 
+				END)
+	--		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID
+			;
+        CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_REPEXT_PAGOS_REPARTO_FILE ESTADOS ACTUALIZADOS: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');   
+                                   
+		
+		INSERT INTO EXT.FINAL_REPEXT_FILE_TEST("TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+            ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+            ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+            ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ")
+        SELECT "TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+            ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+            ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+            ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ"
+        FROM :TEMP_FINAL_PAGOS_BASES_5_82_03_RG
+        WHERE 1 = (
+        	CASE 
+        		WHEN (IMPORTE_PAGO - IFNULL(SUMA_IMPORTE,0)) = 0 THEN 1
+    			WHEN (IMPORTE_PAGO - IFNULL(SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+    		ELSE 0 
+    		END);
+		---------------------------------------------------------------------------------------------------
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_FILE_TEST INSERTADOS: ' ||::ROWCOUNT, v_log_count, v_idproceso, 'info');	
+		---------------------------------------------------------------------------------------------------
+		
+		TEMP_FINAL_PAGOS_BASES_5_82_03_RG_DIF =
+			SELECT T.PERIODSEQ,T.POS_PRIN,T.TIPO_DOCUMENTO,T.DEPOSITSEQ,T.EARNINGCODEID,T.EARNINGGROUPID,T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0) AS DIF,
+				T.ORDERID,T.LINENUMBER,T.SUBLINENUMBER,T.EVENTTYPEID, T.COMPENSATIONDATE,
+				ROW_NUMBER() OVER(
+                      		PARTITION BY T.PERIODSEQ,T.POS_PRIN,T.TIPO_DOCUMENTO,T.DEPOSITSEQ,T.EARNINGCODEID,T.EARNINGGROUPID
+                      		--ORDER BY T.ORDERID
+                      ) AS RN_TRX
+			FROM :TEMP_FINAL_PAGOS_BASES_5_82_03_RG T
+			WHERE 1 = (CASE 
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 0
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+					ELSE 0 
+				END)
+		;
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_FINAL_PAGOS_BASES_5_82_03_RG_DIF: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+		UPDATE F
+    	SET F.IMPORTE = F.IMPORTE + T.DIF
+    	FROM EXT.FINAL_REPEXT_FILE_TEST F
+    	INNER JOIN :TEMP_FINAL_PAGOS_BASES_5_82_03_RG_DIF T  ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+		AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID
+		AND F.ORDERID = T.ORDERID AND F.LINENUMBER = T.LINENUMBER AND F.SUBLINENUMBER = T.SUBLINENUMBER AND F.EVENTTYPEID = T.EVENTTYPEID AND F.COMPENSATIONDATE = T.COMPENSATIONDATE
+		AND T.RN_TRX = 1
+		;
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_FILE_TEST IMPORTE_DIF: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');		
+		
+		
+		---------------------------------------------------------------------------------------------------
+		-- 5_03_RT_MACB38P
+		---------------------------------------------------------------------------------------------------
+		--BASES
+		IF i_tipo_reparto = 'CIERRE' THEN
+			TEMP_BASES_5_03_RT_MACB38P = SELECT * 
+	    		FROM EXT.FINAL_BASES_REPARTO_POLIZA_FILE B
+	    		WHERE PERIODSEQ = i_periodSeq
+	    		--RAMO EARNINGGROUPID = '03-RT'
+	    		--AND PRODUCTID LIKE '032%'
+	    		;
+	    	CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_BASES_5_03_RT_MACB38P: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+	    ELSE
+	    	TEMP_BASES_5_03_RT_MACB38P = SELECT * 
+    		FROM EXT.FINAL_BASES_REPARTO_POLIZA_FILE_NUEVA_BASE_REPARTO B
+    		WHERE PERIODSEQ = v_periodSeqAnterior
+    		--RAMO EARNINGGROUPID = '03-RT'
+    		--AND PRODUCTID LIKE '032%'
+    		;
+    		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_BASES_5_03_RT_MACB38P (BALANCE): ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+    	END IF;
+			
+		--      --BASES_TOTAL_IMPORTE
+		-- BASES_TOTAL_IMPORTE_5_03_RT_MACB38P = 
+		-- 	SELECT POSITIONSEQ, SUM(IMPORTE_COMISION) AS SUMA_IMPORTE
+		-- 	FROM :TEMP_BASES_5_03_RT_MACB38P 
+		-- 	WHERE IMPORTE_COMISION <> 0
+		-- 	GROUP BY POSITIONSEQ;			
+
+			
+		--FINAL
+    	TEMP_FINAL_PAGOS_BASES_5_03_RT_MACB38P = SELECT P.PARTICIPANTSEQ,
+                                P.POSITIONSEQ,
+                                P.PERIODSEQ,
+                                :v_periodName AS PERIODO,
+                                P.POS_CALLIDUS POSITIONNAME,
+                                P.POS_PRIN,
+                                P.NIF,
+                                P.MANAGER_POS_PRIN,
+                                ORDERID,
+                                LINENUMBER,
+                                SUBLINENUMBER,
+                                EVENTTYPEID,
+                                PRODUCTID,
+                                CODIGO_POLIZA,
+                                COMPENSATIONDATE,
+                                ESTADO,
+                                P.PROGRAMA,
+                                P.TIPO_PAGO,
+                                P.DEPOSITO,
+                                P.DEPOSITSEQ,
+                                P.IMPORTE IMPORTE_PAGO,
+                                P.EARNINGCODEID,
+                                P.EARNINGGROUPID,
+                                P.TIPO_DOCUMENTO,
+                                P.TIPO_AGENTE,
+                                B.IMPORTE_COMISION AS IMPORTE,
+                                (SELECT SUM(IMPORTE_COMISION)
+                                	FROM :TEMP_BASES_5_03_RT_MACB38P S
+                                	WHERE S.POSITIONSEQ = B.POSITIONSEQ
+                                	AND S.PRODUCTID LIKE '%'||RIGHT(P.EARNINGCODEID,5)
+									AND S.EVENTTYPEID = 'Pago Comercial'
+                                ) AS SUMA_IMPORTE,
+                                NULL AS TIPO_REPARTO,
+                                0 AS NUM_TRAMO,
+                                NULL AS REPARTO_TIPO_BASE,
+                                NULL AS REPARTO_PORCENTAJE,
+                                POLIZA_FISICA,
+                                POLIZA_CORREGIDA,
+                                PRIMA_CORREGIDA,
+                                PRIMA_NETA,
+                                PRIMA_NETA_ANUAL,
+                                PRIMA_COMIS_S4 PRIMA_COMIS,
+                                NULL AS COEF_TIPO_BASE,
+                                NULL AS COEF_CORRECTOR,
+                                COD_AGENTE,
+                                P.TIPO_LIQ
+    					FROM :TEMP_PAGOS_DIRECTOS_5_03_RT P
+						--INNER JOIN :BASES_TOTAL_IMPORTE_5_03_RT_MACB38P BT ON BT.POSITIONSEQ = P.POSITIONSEQ
+    					INNER JOIN :TEMP_BASES_5_03_RT_MACB38P B ON P.POSITIONSEQ = B.POSITIONSEQ
+    					WHERE 
+    					--POSITION
+    					(B.POS_PRIN = P.POS_PRIN OR B.MANAGER_POS_PRIN = P.POS_PRIN) 
+    					--TIPO AGENTE
+                        AND P.TIPO_AGENTE != '82'
+                        --RAMO
+    					AND B.PRODUCTID LIKE '%'||RIGHT(P.EARNINGCODEID,5)
+    					--PERMANENCIA
+    					AND B.EVENTTYPEID = 'Pago Comercial' AND B.CODIGO_POLIZA = P.EARNINGGROUPID AND ESTADO = SUBSTRING(P.EARNINGCODEID,1,3)
+    					--TIPO CONCEPTO
+    					AND B.IMPORTE_COMISION <> 0
+    					-- AND (ORDERID,LINENUMBER,SUBLINENUMBER,EVENTTYPEID) NOT IN ( 
+         --                           SELECT X.ORDERID,X.LINENUMBER,X.SUBLINENUMBER,X.EVENTTYPEID FROM EXT.FINAL_REPEXT_FILE_TEST X 
+         --                           WHERE X.POS_PRIN = P.POS_PRIN
+         --                               AND X.PERIODSEQ = P.PERIODSEQ
+         --                               AND X.EARNINGCODEID = P.EARNINGCODEID
+         --                               AND X.EARNINGGROUPID = P.EARNINGGROUPID
+         --                               AND X.TIPO_DOCUMENTO = P.TIPO_DOCUMENTO )
+    					
+
+ 						AND NOT EXISTS (
+							SELECT 1
+							FROM EXT.FINAL_REPEXT_FILE_TEST X 
+								WHERE X.POS_PRIN       = P.POS_PRIN
+									AND X.PERIODSEQ      = P.PERIODSEQ
+									AND X.EARNINGCODEID  = P.EARNINGCODEID
+									AND X.EARNINGGROUPID = P.EARNINGGROUPID
+									AND X.TIPO_DOCUMENTO = P.TIPO_DOCUMENTO
+									AND X.ORDERID        = B.ORDERID
+									AND X.LINENUMBER     = B.LINENUMBER
+									AND X.SUBLINENUMBER  = B.SUBLINENUMBER
+									AND X.EVENTTYPEID    = B.EVENTTYPEID
+							)
+    					
+    					;
+    	CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_FINAL_PAGOS_BASES_5_03_RT_MACB38P: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');	
+    	
+    	--SELECT 'TEMP_FINAL_PAGOS_BASES_5_03_RT_MACB38P',* FROM :TEMP_FINAL_PAGOS_BASES_5_03_RT_MACB38P;
+    	
+    	--LIQUIDACIÓN COMPLEMENTARIA
+		IF v_num_post > 1 AND i_tipo_reparto = 'CIERRE' THEN
+		
+			TEMP_PAGOS_DIRECTOS_5_03_RT_MACB38P_LC = SELECT SUM(IMPORTE) SUMA_PAGOS,PERIODSEQ,POS_PRIN,EARNINGGROUPID,EARNINGCODEID,DEPOSITO 
+				FROM :TEMP_FINAL_PAGOS_BASES_5_03_RT_MACB38P
+				WHERE TIPO_LIQ IN ('CIERRE','LIQ')
+				GROUP BY PERIODSEQ,POS_PRIN,EARNINGGROUPID,EARNINGCODEID,DEPOSITO;
+		
+			INSERT INTO EXT.FINAL_REPEXT_FILE_TEST("TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+		        ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+		        ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+		        ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ")
+		    SELECT "TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+		        ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE"*(-1),"TIPO_AGENTE","TIPO_DOCUMENTO",TF."EARNINGGROUPID"
+		        ,TF."EARNINGCODEID",TF.SUMA_IMPORTE,"DEPOSITSEQ",TF."DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+		        ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF",TF."POS_PRIN","POSITIONNAME","PERIODO",TF."PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ"
+		    FROM :TEMP_FINAL_PAGOS_BASES_5_03_RT_MACB38P TF 
+		    	INNER JOIN :TEMP_PAGOS_DIRECTOS_5_03_RT_MACB38P_LC TLC ON TF.PERIODSEQ = TLC.PERIODSEQ AND TF.POS_PRIN = TLC.POS_PRIN 
+		    	AND TF.EARNINGGROUPID = TLC.EARNINGGROUPID AND TF.EARNINGCODEID = TLC. EARNINGCODEID AND TF.DEPOSITO = TLC.DEPOSITO
+		    	AND 1 = (CASE WHEN SUMA_PAGOS <> SUMA_IMPORTE THEN 1 END); 
+		 END IF;
+    	-- FIN LIQUIDACIÓN COMPLEMENTARIA
+    	
+    	UPDATE F
+    	SET ESTADO_REPARTO = CASE 
+    		WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 2
+			WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 3
+			ELSE 4 
+		END
+		FROM EXT.FINAL_REPEXT_PAGOS_FILE_TEST F
+		INNER JOIN :TEMP_FINAL_PAGOS_BASES_5_03_RT_MACB38P T ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+		AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID;
+		
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_PAGOS_FILE_TEST ESTADOS ACTUALIZADOS: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+		
+		UPDATE F
+            SET ESTADO_REPARTO = CASE 
+    				WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 2
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 3
+					ELSE 4 
+				END --REPARTO CORRECTO
+			FROM :TEMP_REPEXT_PAGOS_REPARTO_FILE F
+			INNER JOIN :TEMP_FINAL_PAGOS_BASES_5_03_RT_MACB38P T ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+			AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+			WHERE 1 = (CASE 
+    				WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 1
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+					ELSE 0 
+				END)
+	--		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID
+			;
+        CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_REPEXT_PAGOS_REPARTO_FILE ESTADOS ACTUALIZADOS: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');   
+                                   
+		
+		INSERT INTO EXT.FINAL_REPEXT_FILE_TEST("TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+            ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+            ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+            ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ")
+        SELECT "TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+            ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+            ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+            ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ"
+        FROM :TEMP_FINAL_PAGOS_BASES_5_03_RT_MACB38P
+        WHERE 1 = (
+        	CASE 
+        		WHEN (IMPORTE_PAGO - IFNULL(SUMA_IMPORTE,0)) = 0 THEN 1
+    			WHEN (IMPORTE_PAGO - IFNULL(SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+    		ELSE 0 
+    		END);
+		
+		---------------------------------------------------------------------------------------------------
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_FILE_TEST INSERTADOS: ' ||::ROWCOUNT, v_log_count, v_idproceso, 'info');	
+		---------------------------------------------------------------------------------------------------
+		
+		TEMP_FINAL_PAGOS_BASES_5_03_RT_MACB38P_DIF =
+			SELECT T.PERIODSEQ,T.POS_PRIN,T.TIPO_DOCUMENTO,T.DEPOSITSEQ,T.EARNINGCODEID,T.EARNINGGROUPID,T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0) AS DIF,
+				T.ORDERID,T.LINENUMBER,T.SUBLINENUMBER,T.EVENTTYPEID, T.COMPENSATIONDATE,
+				ROW_NUMBER() OVER(
+                      		PARTITION BY T.PERIODSEQ,T.POS_PRIN,T.TIPO_DOCUMENTO,T.DEPOSITSEQ,T.EARNINGCODEID,T.EARNINGGROUPID
+                      		--ORDER BY T.ORDERID
+                      ) AS RN_TRX
+			FROM :TEMP_FINAL_PAGOS_BASES_5_03_RT_MACB38P T
+			WHERE 1 = (CASE 
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 0
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+					ELSE 0 
+				END)
+		;
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_FINAL_PAGOS_BASES_5_03_RT_MACB38P_DIF: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+		UPDATE F
+    	SET F.IMPORTE = F.IMPORTE + T.DIF
+    	FROM EXT.FINAL_REPEXT_FILE_TEST F
+    	INNER JOIN :TEMP_FINAL_PAGOS_BASES_5_03_RT_MACB38P_DIF T  ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+		AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID
+		AND F.ORDERID = T.ORDERID AND F.LINENUMBER = T.LINENUMBER AND F.SUBLINENUMBER = T.SUBLINENUMBER AND F.EVENTTYPEID = T.EVENTTYPEID AND F.COMPENSATIONDATE = T.COMPENSATIONDATE
+		AND T.RN_TRX = 1
+		;
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_FILE_TEST IMPORTE_DIF: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');		
+		
+		
+		
+		
+		
+		---------------------------------------------------------------------------------------------------
+		-- 5_03_RG_MACB38P
+		---------------------------------------------------------------------------------------------------
+		--BASES
+		IF i_tipo_reparto = 'CIERRE' THEN
+			TEMP_BASES_5_03_RG_MACB38P = SELECT * 
+	    		FROM EXT.FINAL_BASES_REPARTO_POLIZA_FILE B
+	    		WHERE PERIODSEQ = i_periodSeq
+	    		--RAMO EARNINGGROUPID = '03-RT'
+	    		--AND PRODUCTID LIKE '032%'
+	    		;
+	    	CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_BASES_5_03_RG_MACB38P: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+	    ELSE
+	    	TEMP_BASES_5_03_RG_MACB38P = SELECT * 
+    		FROM EXT.FINAL_BASES_REPARTO_POLIZA_FILE_NUEVA_BASE_REPARTO B
+    		WHERE PERIODSEQ = v_periodSeqAnterior
+    		--RAMO EARNINGGROUPID = '03-RT'
+    		--AND PRODUCTID LIKE '032%'
+    		;
+    		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_BASES_5_03_RG_MACB38P (BALANCE): ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+    	END IF;
+		
+			
+		--      --BASES_TOTAL_IMPORTE
+		-- BASES_TOTAL_IMPORTE_5_03_RG_MACB38P = 
+		-- 	SELECT POSITIONSEQ, SUM(IMPORTE_COMISION) AS SUMA_IMPORTE
+		-- 	FROM :TEMP_BASES_5_03_RG_MACB38P
+		-- 	WHERE IMPORTE_COMISION <> 0
+		-- 	GROUP BY POSITIONSEQ;	
+			
+		--FINAL
+    	TEMP_FINAL_PAGOS_BASES_5_03_RG_MACB38P = SELECT P.PARTICIPANTSEQ,
+                                P.POSITIONSEQ,
+                                P.PERIODSEQ,
+                                :v_periodName AS PERIODO,
+                                P.POS_CALLIDUS POSITIONNAME,
+                                P.POS_PRIN,
+                                P.NIF,
+                                P.MANAGER_POS_PRIN,
+                                ORDERID,
+                                LINENUMBER,
+                                SUBLINENUMBER,
+                                EVENTTYPEID,
+                                PRODUCTID,
+                                CODIGO_POLIZA,
+                                COMPENSATIONDATE,
+                                ESTADO,
+                                P.PROGRAMA,
+                                P.TIPO_PAGO,
+                                P.DEPOSITO,
+                                P.DEPOSITSEQ,
+                                P.IMPORTE IMPORTE_PAGO,
+                                P.EARNINGCODEID,
+                                P.EARNINGGROUPID,
+                                P.TIPO_DOCUMENTO,
+                                P.TIPO_AGENTE,
+                                B.IMPORTE_COMISION AS IMPORTE,
+                                (SELECT SUM(IMPORTE_COMISION)
+                                	FROM :TEMP_BASES_5_03_RG_MACB38P S
+                                	WHERE S.POSITIONSEQ = B.POSITIONSEQ
+                                	AND S.PRODUCTID LIKE '%'||RIGHT(P.EARNINGCODEID,5)
+									AND S.EVENTTYPEID = 'Pago Comercial'
+                                ) AS SUMA_IMPORTE,
+                                NULL AS TIPO_REPARTO,
+                                0 AS NUM_TRAMO,
+                                NULL AS REPARTO_TIPO_BASE,
+                                NULL AS REPARTO_PORCENTAJE,
+                                POLIZA_FISICA,
+                                POLIZA_CORREGIDA,
+                                PRIMA_CORREGIDA,
+                                PRIMA_NETA,
+                                PRIMA_NETA_ANUAL,
+                                PRIMA_COMIS_S4 PRIMA_COMIS,
+                                NULL AS COEF_TIPO_BASE,
+                                NULL AS COEF_CORRECTOR,
+                                COD_AGENTE,
+                                P.TIPO_LIQ
+    					FROM :TEMP_PAGOS_DIRECTOS_5_03_RG P
+						--INNER JOIN :BASES_TOTAL_IMPORTE_5_03_RG_MACB38P BT ON BT.POSITIONSEQ = P.POSITIONSEQ
+    					INNER JOIN :TEMP_BASES_5_03_RG_MACB38P B ON P.POSITIONSEQ = B.POSITIONSEQ
+    					WHERE 
+    					--POSITION
+    					(B.POS_PRIN = P.POS_PRIN OR B.MANAGER_POS_PRIN = P.POS_PRIN ) 
+    					--TIPO AGENTE
+                        AND P.TIPO_AGENTE != '82'
+                        --RAMO
+    					AND B.PRODUCTID LIKE '%'||RIGHT(P.EARNINGCODEID,5)
+    					--PERMANENCIA
+    					AND B.EVENTTYPEID = 'Pago Comercial' AND B.CODIGO_POLIZA = P.EARNINGGROUPID AND ESTADO = SUBSTRING(P.EARNINGCODEID,1,3)
+    					--TIPO CONCEPTO
+    					AND B.IMPORTE_COMISION <> 0
+    					-- AND (ORDERID,LINENUMBER,SUBLINENUMBER,EVENTTYPEID) NOT IN ( 
+         --                           SELECT X.ORDERID,X.LINENUMBER,X.SUBLINENUMBER,X.EVENTTYPEID FROM EXT.FINAL_REPEXT_FILE_TEST X 
+         --                           WHERE X.POS_PRIN = P.POS_PRIN
+         --                               AND X.PERIODSEQ = P.PERIODSEQ
+         --                               AND X.EARNINGCODEID = P.EARNINGCODEID
+         --                               AND X.EARNINGGROUPID = P.EARNINGGROUPID
+         --                               AND X.TIPO_DOCUMENTO = P.TIPO_DOCUMENTO )
+    					
+
+ 						AND NOT EXISTS (
+							SELECT 1
+							FROM EXT.FINAL_REPEXT_FILE_TEST X 
+								WHERE X.POS_PRIN       = P.POS_PRIN
+									AND X.PERIODSEQ      = P.PERIODSEQ
+									AND X.EARNINGCODEID  = P.EARNINGCODEID
+									AND X.EARNINGGROUPID = P.EARNINGGROUPID
+									AND X.TIPO_DOCUMENTO = P.TIPO_DOCUMENTO
+									AND X.ORDERID        = B.ORDERID
+									AND X.LINENUMBER     = B.LINENUMBER
+									AND X.SUBLINENUMBER  = B.SUBLINENUMBER
+									AND X.EVENTTYPEID    = B.EVENTTYPEID
+							)
+    					
+    					;
+    	CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_FINAL_PAGOS_BASES_5_03_RG_MACB38P: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');	
+    	
+    	--SELECT 'TEMP_FINAL_PAGOS_BASES_5_03_RG_MACB38P',* FROM :TEMP_FINAL_PAGOS_BASES_5_03_RG_MACB38P;
+    	
+    	--LIQUIDACIÓN COMPLEMENTARIA
+		IF v_num_post > 1 AND i_tipo_reparto = 'CIERRE' THEN
+		
+			TEMP_PAGOS_DIRECTOS_5_03_RG_MACB38P_LC = SELECT SUM(IMPORTE) SUMA_PAGOS,PERIODSEQ,POS_PRIN,EARNINGGROUPID,EARNINGCODEID,DEPOSITO 
+				FROM :TEMP_FINAL_PAGOS_BASES_5_03_RG_MACB38P
+				WHERE TIPO_LIQ IN ('CIERRE','LIQ')
+				GROUP BY PERIODSEQ,POS_PRIN,EARNINGGROUPID,EARNINGCODEID,DEPOSITO;
+		
+			INSERT INTO EXT.FINAL_REPEXT_FILE_TEST("TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+		        ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+		        ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+		        ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ")
+		    SELECT "TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+		        ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE"*(-1),"TIPO_AGENTE","TIPO_DOCUMENTO",TF."EARNINGGROUPID"
+		        ,TF."EARNINGCODEID",TF.SUMA_IMPORTE,"DEPOSITSEQ",TF."DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+		        ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF",TF."POS_PRIN","POSITIONNAME","PERIODO",TF."PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ"
+		    FROM :TEMP_FINAL_PAGOS_BASES_5_03_RG_MACB38P TF 
+		    	INNER JOIN :TEMP_PAGOS_DIRECTOS_5_03_RG_MACB38P_LC TLC ON TF.PERIODSEQ = TLC.PERIODSEQ AND TF.POS_PRIN = TLC.POS_PRIN 
+		    	AND TF.EARNINGGROUPID = TLC.EARNINGGROUPID AND TF.EARNINGCODEID = TLC. EARNINGCODEID AND TF.DEPOSITO = TLC.DEPOSITO
+		    	AND 1 = (CASE WHEN SUMA_PAGOS <> SUMA_IMPORTE THEN 1 END); 
+		 END IF;
+    	-- FIN LIQUIDACIÓN COMPLEMENTARIA
+    	
+    	UPDATE F
+    	SET ESTADO_REPARTO = CASE 
+    		WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 2
+			WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 3
+			ELSE 4 
+		END
+		FROM EXT.FINAL_REPEXT_PAGOS_FILE_TEST F
+		INNER JOIN :TEMP_FINAL_PAGOS_BASES_5_03_RG_MACB38P T ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+		AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID;
+		
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_PAGOS_FILE_TEST ESTADOS ACTUALIZADOS: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+		
+		UPDATE F
+            SET ESTADO_REPARTO = CASE 
+    				WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 2
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 3
+					ELSE 4 
+				END --REPARTO CORRECTO
+			FROM :TEMP_REPEXT_PAGOS_REPARTO_FILE F
+			INNER JOIN :TEMP_FINAL_PAGOS_BASES_5_03_RG_MACB38P T ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+			AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+			WHERE 1 = (CASE 
+    				WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 1
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+					ELSE 0 
+				END)
+	--		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID
+			;
+        CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_REPEXT_PAGOS_REPARTO_FILE ESTADOS ACTUALIZADOS: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');   
+                                   
+		
+		INSERT INTO EXT.FINAL_REPEXT_FILE_TEST("TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+            ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+            ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+            ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ")
+        SELECT "TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+            ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+            ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+            ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ"
+        FROM :TEMP_FINAL_PAGOS_BASES_5_03_RG_MACB38P
+        WHERE 1 = (
+        	CASE 
+        		WHEN (IMPORTE_PAGO - IFNULL(SUMA_IMPORTE,0)) = 0 THEN 1
+    			WHEN (IMPORTE_PAGO - IFNULL(SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+    		ELSE 0 
+    		END);
+		
+		---------------------------------------------------------------------------------------------------
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_FILE_TEST INSERTADOS: ' ||::ROWCOUNT, v_log_count, v_idproceso, 'info');	
+		---------------------------------------------------------------------------------------------------
+		
+		TEMP_FINAL_PAGOS_BASES_5_03_RG_MACB38P_DIF =
+			SELECT T.PERIODSEQ,T.POS_PRIN,T.TIPO_DOCUMENTO,T.DEPOSITSEQ,T.EARNINGCODEID,T.EARNINGGROUPID,T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0) AS DIF,
+					T.ORDERID,T.LINENUMBER,T.SUBLINENUMBER,T.EVENTTYPEID, T.COMPENSATIONDATE,
+				ROW_NUMBER() OVER(
+                      		PARTITION BY T.PERIODSEQ,T.POS_PRIN,T.TIPO_DOCUMENTO,T.DEPOSITSEQ,T.EARNINGCODEID,T.EARNINGGROUPID
+                      		--ORDER BY T.ORDERID
+                      ) AS RN_TRX
+			FROM :TEMP_FINAL_PAGOS_BASES_5_03_RG_MACB38P T
+			WHERE 1 = (CASE 
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 0
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+					ELSE 0 
+				END)
+		;
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_FINAL_PAGOS_BASES_5_03_RG_MACB38P_DIF: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+		UPDATE F
+    	SET F.IMPORTE = F.IMPORTE + T.DIF
+    	FROM EXT.FINAL_REPEXT_FILE_TEST F
+    	INNER JOIN :TEMP_FINAL_PAGOS_BASES_5_03_RG_MACB38P_DIF T  ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+		AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID
+		AND F.ORDERID = T.ORDERID AND F.LINENUMBER = T.LINENUMBER AND F.SUBLINENUMBER = T.SUBLINENUMBER AND F.EVENTTYPEID = T.EVENTTYPEID AND F.COMPENSATIONDATE = T.COMPENSATIONDATE
+		AND T.RN_TRX = 1
+		;
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_FILE_TEST IMPORTE_DIF: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');		
+
+		
+		---------------------------------------------------------------------------------------------------
+		-- 5_82_RT_MACB38P
+		---------------------------------------------------------------------------------------------------
+		
+		--BASES
+		IF i_tipo_reparto = 'CIERRE' THEN
+			TEMP_BASES_5_82_RT_MACB38P = SELECT * 
+	    		FROM EXT.FINAL_BASES_REPARTO_POLIZA_FILE B
+	    		WHERE PERIODSEQ = i_periodSeq
+	    		--RAMO EARNINGGROUPID = '03-RT'
+	    		--AND PRODUCTID LIKE '032%'
+	    		;
+	    	CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_BASES_5_82_RT_MACB38P: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+    	ELSE
+    		TEMP_BASES_5_82_RT_MACB38P = SELECT * 
+    		FROM EXT.FINAL_BASES_REPARTO_POLIZA_FILE_NUEVA_BASE_REPARTO B
+    		WHERE PERIODSEQ = v_periodSeqAnterior
+    		--RAMO EARNINGGROUPID = '03-RT'
+    		--AND PRODUCTID LIKE '032%'
+    		;
+    		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_BASES_5_82_RT_MACB38P (BALANCE): ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+    	END IF;
+		
+		     --BASES_TOTAL_IMPORTE
+
+		-- BASES_TOTAL_IMPORTE_5_82_RT_MACB38P = 
+		-- 	SELECT POSITIONSEQ, SUM(IMPORTE_COMISION) AS SUMA_IMPORTE
+		-- 	FROM :TEMP_BASES_5_82_RT_MACB38P
+		-- 	WHERE IMPORTE_COMISION <> 0
+		-- 	GROUP BY POSITIONSEQ;	
+			
+			
+		--FINAL
+    	TEMP_FINAL_PAGOS_BASES_5_82_RT_MACB38P = SELECT P.PARTICIPANTSEQ,
+                                P.POSITIONSEQ,
+                                P.PERIODSEQ,
+                                :v_periodName AS PERIODO,
+                                P.POS_CALLIDUS POSITIONNAME,
+                                P.POS_PRIN,
+                                P.NIF,
+                                P.MANAGER_POS_PRIN,
+                                ORDERID,
+                                LINENUMBER,
+                                SUBLINENUMBER,
+                                EVENTTYPEID,
+                                PRODUCTID,
+                                CODIGO_POLIZA,
+                                COMPENSATIONDATE,
+                                ESTADO,
+                                P.PROGRAMA,
+                                P.TIPO_PAGO,
+                                P.DEPOSITO,
+                                P.DEPOSITSEQ,
+                                P.IMPORTE IMPORTE_PAGO,
+                                P.EARNINGCODEID,
+                                P.EARNINGGROUPID,
+                                P.TIPO_DOCUMENTO,
+                                P.TIPO_AGENTE,
+                                B.IMPORTE_COMISION AS IMPORTE,
+                                -- SUM(B.IMPORTE_COMISION) OVER(PARTITION BY P.POSITIONSEQ) AS SUMA_IMPORTE,
+                                (SELECT SUM(IMPORTE_COMISION)
+                                	FROM :TEMP_BASES_5_82_RT_MACB38P S
+                                	WHERE S.POSITIONSEQ = B.POSITIONSEQ
+                                	AND S.PRODUCTID LIKE '%'||RIGHT(P.EARNINGCODEID,5)
+									AND S.EVENTTYPEID = 'Pago Comercial'
+                                ) AS SUMA_IMPORTE,
+                                NULL AS TIPO_REPARTO,
+                                0 AS NUM_TRAMO,
+                                NULL AS REPARTO_TIPO_BASE,
+                                NULL AS REPARTO_PORCENTAJE,
+                                POLIZA_FISICA,
+                                POLIZA_CORREGIDA,
+                                PRIMA_CORREGIDA,
+                                PRIMA_NETA,
+                                PRIMA_NETA_ANUAL,
+                                PRIMA_COMIS_S4 PRIMA_COMIS,
+                                NULL AS COEF_TIPO_BASE,
+                                NULL AS COEF_CORRECTOR,
+                                COD_AGENTE,
+                                P.TIPO_LIQ
+    					FROM :TEMP_PAGOS_DIRECTOS_5_RT P
+						--INNER JOIN :BASES_TOTAL_IMPORTE_5_82_RT_MACB38P BT ON BT.POSITIONSEQ = P.POSITIONSEQ
+    					INNER JOIN :TEMP_BASES_5_82_RT_MACB38P B ON P.POSITIONSEQ = B.POSITIONSEQ
+    					--POSITION
+    					WHERE ((B.POS_PRIN = P.POS_PRIN AND (IFNULL(B.CAMBIO_AG_INSP,'0') = '0')) OR B.MANAGER_POS_PRIN = P.POS_PRIN OR B.MAN_ACT_POS_PRIN = P.POS_PRIN)
+    					--TIPO AGENTE
+                        AND P.TIPO_AGENTE = '82'
+                        --RAMO
+    					AND B.PRODUCTID LIKE '%'||RIGHT(P.EARNINGCODEID,5)
+    					--PERMANENCIA
+    					AND B.EVENTTYPEID = 'Pago Comercial' AND B.CODIGO_POLIZA = P.EARNINGGROUPID AND ESTADO = SUBSTRING(P.EARNINGCODEID,1,3)
+    					--TIPO CONCEPTO
+    					AND B.IMPORTE_COMISION <> 0
+    					-- AND (ORDERID,LINENUMBER,SUBLINENUMBER,EVENTTYPEID) NOT IN ( 
+         --                           SELECT X.ORDERID,X.LINENUMBER,X.SUBLINENUMBER,X.EVENTTYPEID FROM EXT.FINAL_REPEXT_FILE_TEST X 
+         --                           WHERE X.POS_PRIN = P.POS_PRIN
+         --                               AND X.PERIODSEQ = P.PERIODSEQ
+         --                               AND X.EARNINGCODEID = P.EARNINGCODEID
+         --                               AND X.EARNINGGROUPID = P.EARNINGGROUPID
+         --                               AND X.TIPO_DOCUMENTO = P.TIPO_DOCUMENTO )
+    					
+
+ 						AND NOT EXISTS (
+							SELECT 1
+							FROM EXT.FINAL_REPEXT_FILE_TEST X 
+								WHERE X.POS_PRIN       = P.POS_PRIN
+									AND X.PERIODSEQ      = P.PERIODSEQ
+									AND X.EARNINGCODEID  = P.EARNINGCODEID
+									AND X.EARNINGGROUPID = P.EARNINGGROUPID
+									AND X.TIPO_DOCUMENTO = P.TIPO_DOCUMENTO
+									AND X.ORDERID        = B.ORDERID
+									AND X.LINENUMBER     = B.LINENUMBER
+									AND X.SUBLINENUMBER  = B.SUBLINENUMBER
+									AND X.EVENTTYPEID    = B.EVENTTYPEID
+							)
+    					
+    					;
+    	CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_FINAL_PAGOS_BASES_5_82_RT_MACB38P: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');	
+    	
+    	
+    	
+    	--LIQUIDACIÓN COMPLEMENTARIA
+		IF v_num_post > 1 AND i_tipo_reparto = 'CIERRE' THEN
+		
+			TEMP_PAGOS_DIRECTOS_5_82_RT_MACB38P_LC = SELECT SUM(IMPORTE) SUMA_PAGOS,PERIODSEQ,POS_PRIN,EARNINGGROUPID,EARNINGCODEID,DEPOSITO 
+				FROM :TEMP_FINAL_PAGOS_BASES_5_82_RT_MACB38P
+				WHERE TIPO_LIQ IN ('CIERRE','LIQ')
+				GROUP BY PERIODSEQ,POS_PRIN,EARNINGGROUPID,EARNINGCODEID,DEPOSITO;
+		
+			INSERT INTO EXT.FINAL_REPEXT_FILE_TEST("TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+		        ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+		        ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+		        ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ")
+		    SELECT "TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+		        ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE"*(-1),"TIPO_AGENTE","TIPO_DOCUMENTO",TF."EARNINGGROUPID"
+		        ,TF."EARNINGCODEID",TF.SUMA_IMPORTE,"DEPOSITSEQ",TF."DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+		        ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF",TF."POS_PRIN","POSITIONNAME","PERIODO",TF."PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ"
+		    FROM :TEMP_FINAL_PAGOS_BASES_5_82_RT_MACB38P TF 
+		    	INNER JOIN :TEMP_PAGOS_DIRECTOS_5_82_RT_MACB38P_LC TLC ON TF.PERIODSEQ = TLC.PERIODSEQ AND TF.POS_PRIN = TLC.POS_PRIN 
+		    	AND TF.EARNINGGROUPID = TLC.EARNINGGROUPID AND TF.EARNINGCODEID = TLC. EARNINGCODEID AND TF.DEPOSITO = TLC.DEPOSITO
+		    	AND 1 = (CASE WHEN SUMA_PAGOS <> SUMA_IMPORTE THEN 1 END); 
+		 END IF;
+    	-- FIN LIQUIDACIÓN COMPLEMENTARIA
+    	
+    	UPDATE F
+    	SET ESTADO_REPARTO = CASE 
+    		WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 2
+			WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 3
+			ELSE 4 
+		END
+		FROM EXT.FINAL_REPEXT_PAGOS_FILE_TEST F
+		INNER JOIN :TEMP_FINAL_PAGOS_BASES_5_82_RT_MACB38P T ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+		AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID;
+		
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_PAGOS_FILE_TEST ESTADOS ACTUALIZADOS: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+		
+		UPDATE F
+            SET ESTADO_REPARTO = CASE 
+    				WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 2
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 3
+					ELSE 4 
+				END --REPARTO CORRECTO
+			FROM :TEMP_REPEXT_PAGOS_REPARTO_FILE F
+			INNER JOIN :TEMP_FINAL_PAGOS_BASES_5_82_RT_MACB38P T ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+			AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+			WHERE 1 = (CASE 
+    				WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 1
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+					ELSE 0 
+				END)
+	--		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID
+			;
+        CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_REPEXT_PAGOS_REPARTO_FILE ESTADOS ACTUALIZADOS: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');   
+                                   
+		
+		INSERT INTO EXT.FINAL_REPEXT_FILE_TEST("TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+            ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+            ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+            ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ")
+        SELECT "TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+            ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+            ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+            ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ"
+        FROM :TEMP_FINAL_PAGOS_BASES_5_82_RT_MACB38P
+        WHERE 1 = (
+        	CASE 
+        		WHEN (IMPORTE_PAGO - IFNULL(SUMA_IMPORTE,0)) = 0 THEN 1
+    			WHEN (IMPORTE_PAGO - IFNULL(SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+    		ELSE 0 
+    		END);
+		---------------------------------------------------------------------------------------------------
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_FILE_TEST INSERTADOS: ' ||::ROWCOUNT, v_log_count, v_idproceso, 'info');	
+		---------------------------------------------------------------------------------------------------
+		
+		TEMP_FINAL_PAGOS_BASES_5_82_RT_MACB38P_DIF =
+			SELECT T.PERIODSEQ,T.POS_PRIN,T.TIPO_DOCUMENTO,T.DEPOSITSEQ,T.EARNINGCODEID,T.EARNINGGROUPID,T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0) AS DIF,
+				T.ORDERID,T.LINENUMBER,T.SUBLINENUMBER,T.EVENTTYPEID, T.COMPENSATIONDATE,
+				ROW_NUMBER() OVER(
+                      		PARTITION BY T.PERIODSEQ,T.POS_PRIN,T.TIPO_DOCUMENTO,T.DEPOSITSEQ,T.EARNINGCODEID,T.EARNINGGROUPID
+                      		--ORDER BY T.ORDERID
+                      ) AS RN_TRX
+			FROM :TEMP_FINAL_PAGOS_BASES_5_82_RT_MACB38P T
+			WHERE 1 = (CASE 
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 0
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+					ELSE 0 
+				END)
+		;
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_FINAL_PAGOS_BASES_5_82_RT_MACB38P_DIF: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+		UPDATE F
+    	SET F.IMPORTE = F.IMPORTE + T.DIF
+    	FROM EXT.FINAL_REPEXT_FILE_TEST F
+    	INNER JOIN :TEMP_FINAL_PAGOS_BASES_5_82_RT_MACB38P_DIF T  ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+		AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID
+		AND F.ORDERID = T.ORDERID AND F.LINENUMBER = T.LINENUMBER AND F.SUBLINENUMBER = T.SUBLINENUMBER AND F.EVENTTYPEID = T.EVENTTYPEID AND F.COMPENSATIONDATE = T.COMPENSATIONDATE
+		AND T.RN_TRX = 1
+		;
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_FILE_TEST IMPORTE_DIF: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');		
+		
+		
+		---------------------------------------------------------------------------------------------------
+		-- 5_82_RG_MACB38P
+		---------------------------------------------------------------------------------------------------
+		--BASES
+		IF i_tipo_reparto = 'CIERRE' THEN
+			TEMP_BASES_5_82_RG_MACB38P = SELECT * 
+	    		FROM EXT.FINAL_BASES_REPARTO_POLIZA_FILE B
+	    		WHERE PERIODSEQ = i_periodSeq
+	    		--RAMO EARNINGGROUPID = '03-RT'
+	    		--AND PRODUCTID LIKE '032%'
+	    		;
+	    	CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_BASES_5_82_RG_MACB38P: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+	    ELSE
+	    	TEMP_BASES_5_82_RG_MACB38P = SELECT * 
+    		FROM EXT.FINAL_BASES_REPARTO_POLIZA_FILE_NUEVA_BASE_REPARTO B
+    		WHERE PERIODSEQ = v_periodSeqAnterior
+    		--RAMO EARNINGGROUPID = '03-RT'
+    		--AND PRODUCTID LIKE '032%'
+    		;
+    		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_BASES_5_82_RG_MACB38P (BALANCE): ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+    	END IF;
+	
+			
+		--      --BASES_TOTAL_IMPORTE
+		-- BASES_TOTAL_IMPORTE_5_82_RG_MACB38P = 
+		-- 	SELECT POSITIONSEQ, SUM(IMPORTE_COMISION) AS SUMA_IMPORTE
+		-- 	FROM :TEMP_BASES_5_82_RG_MACB38P
+		-- 	WHERE IMPORTE_COMISION <> 0
+		-- 	GROUP BY POSITIONSEQ;	
+
+			
+		--FINAL
+    	TEMP_FINAL_PAGOS_BASES_5_82_RG_MACB38P = SELECT P.PARTICIPANTSEQ,
+                                P.POSITIONSEQ,
+                                P.PERIODSEQ,
+                                :v_periodName AS PERIODO,
+                                P.POS_CALLIDUS POSITIONNAME,
+                                P.POS_PRIN,
+                                P.NIF,
+                                P.MANAGER_POS_PRIN,
+                                ORDERID,
+                                LINENUMBER,
+                                SUBLINENUMBER,
+                                EVENTTYPEID,
+                                PRODUCTID,
+                                CODIGO_POLIZA,
+                                COMPENSATIONDATE,
+                                ESTADO,
+                                P.PROGRAMA,
+                                P.TIPO_PAGO,
+                                P.DEPOSITO,
+                                P.DEPOSITSEQ,
+                                P.IMPORTE IMPORTE_PAGO,
+                                P.EARNINGCODEID,
+                                P.EARNINGGROUPID,
+                                P.TIPO_DOCUMENTO,
+                                P.TIPO_AGENTE,
+                                B.IMPORTE_COMISION AS IMPORTE,
+                                --SUM(B.IMPORTE_COMISION) OVER(PARTITION BY P.POSITIONSEQ) AS SUMA_IMPORTE,
+                                (SELECT SUM(IMPORTE_COMISION)
+                                	FROM :TEMP_BASES_5_82_RG_MACB38P S
+                                	WHERE S.POSITIONSEQ = B.POSITIONSEQ
+                                	AND S.PRODUCTID LIKE '%'||RIGHT(P.EARNINGCODEID,5)
+									AND S.EVENTTYPEID = 'Pago Comercial'
+                                ) AS SUMA_IMPORTE,
+                                NULL AS TIPO_REPARTO,
+                                0 AS NUM_TRAMO,
+                                NULL AS REPARTO_TIPO_BASE,
+                                NULL AS REPARTO_PORCENTAJE,
+                                POLIZA_FISICA,
+                                POLIZA_CORREGIDA,
+                                PRIMA_CORREGIDA,
+                                PRIMA_NETA,
+                                PRIMA_NETA_ANUAL,
+                                PRIMA_COMIS_S4 PRIMA_COMIS,
+                                NULL AS COEF_TIPO_BASE,
+                                NULL AS COEF_CORRECTOR,
+                                COD_AGENTE,
+                                P.TIPO_LIQ
+    					FROM :TEMP_PAGOS_DIRECTOS_5_RG P
+						--INNER JOIN :BASES_TOTAL_IMPORTE_5_82_RG_MACB38P BT ON BT.POSITIONSEQ = P.POSITIONSEQ
+    					INNER JOIN :TEMP_BASES_5_82_RG_MACB38P B ON P.POSITIONSEQ = B.POSITIONSEQ
+    					WHERE ((B.POS_PRIN = P.POS_PRIN AND (IFNULL(B.CAMBIO_AG_INSP,'0') = '0')) OR B.MANAGER_POS_PRIN = P.POS_PRIN OR B.MAN_ACT_POS_PRIN = P.POS_PRIN)
+    					--TIPO AGENTE
+                        AND P.TIPO_AGENTE = '82'
+                        --RAMO
+    					AND B.PRODUCTID LIKE '%'||RIGHT(P.EARNINGCODEID,5)
+    					--PERMANENCIA
+    					AND B.EVENTTYPEID = 'Pago Comercial' AND B.CODIGO_POLIZA = P.EARNINGGROUPID AND ESTADO = SUBSTRING(P.EARNINGCODEID,1,3)
+    					--TIPO CONCEPTO
+    					AND B.IMPORTE_COMISION <> 0
+    					-- AND (ORDERID,LINENUMBER,SUBLINENUMBER,EVENTTYPEID) NOT IN ( 
+         --                           SELECT X.ORDERID,X.LINENUMBER,X.SUBLINENUMBER,X.EVENTTYPEID FROM EXT.FINAL_REPEXT_FILE_TEST X 
+         --                           WHERE X.POS_PRIN = P.POS_PRIN
+         --                               AND X.PERIODSEQ = P.PERIODSEQ
+         --                               AND X.EARNINGCODEID = P.EARNINGCODEID
+         --                               AND X.EARNINGGROUPID = P.EARNINGGROUPID
+         --                               AND X.TIPO_DOCUMENTO = P.TIPO_DOCUMENTO )
+    					
+
+ 						AND NOT EXISTS (
+							SELECT 1
+							FROM EXT.FINAL_REPEXT_FILE_TEST X 
+								WHERE X.POS_PRIN       = P.POS_PRIN
+									AND X.PERIODSEQ      = P.PERIODSEQ
+									AND X.EARNINGCODEID  = P.EARNINGCODEID
+									AND X.EARNINGGROUPID = P.EARNINGGROUPID
+									AND X.TIPO_DOCUMENTO = P.TIPO_DOCUMENTO
+									AND X.ORDERID        = B.ORDERID
+									AND X.LINENUMBER     = B.LINENUMBER
+									AND X.SUBLINENUMBER  = B.SUBLINENUMBER
+									AND X.EVENTTYPEID    = B.EVENTTYPEID
+							)
+    					
+    					;
+    	CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_FINAL_PAGOS_BASES_5_82_RG_MACB38P: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');	
+    	
+    
+    	
+    	--LIQUIDACIÓN COMPLEMENTARIA
+		IF v_num_post > 1 AND i_tipo_reparto = 'CIERRE' THEN
+		
+			TEMP_PAGOS_DIRECTOS_5_82_RG_MACB38P_LC = SELECT SUM(IMPORTE) SUMA_PAGOS,PERIODSEQ,POS_PRIN,EARNINGGROUPID,EARNINGCODEID,DEPOSITO 
+				FROM :TEMP_FINAL_PAGOS_BASES_5_82_RG_MACB38P
+				WHERE TIPO_LIQ IN ('CIERRE','LIQ')
+				GROUP BY PERIODSEQ,POS_PRIN,EARNINGGROUPID,EARNINGCODEID,DEPOSITO;
+		
+			INSERT INTO EXT.FINAL_REPEXT_FILE_TEST("TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+		        ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+		        ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+		        ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ")
+		    SELECT "TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+		        ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE"*(-1),"TIPO_AGENTE","TIPO_DOCUMENTO",TF."EARNINGGROUPID"
+		        ,TF."EARNINGCODEID",TF.SUMA_IMPORTE,"DEPOSITSEQ",TF."DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+		        ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF",TF."POS_PRIN","POSITIONNAME","PERIODO",TF."PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ"
+		    FROM :TEMP_FINAL_PAGOS_BASES_5_82_RG_MACB38P TF 
+		    	INNER JOIN :TEMP_PAGOS_DIRECTOS_5_82_RG_MACB38P_LC TLC ON TF.PERIODSEQ = TLC.PERIODSEQ AND TF.POS_PRIN = TLC.POS_PRIN 
+		    	AND TF.EARNINGGROUPID = TLC.EARNINGGROUPID AND TF.EARNINGCODEID = TLC. EARNINGCODEID AND TF.DEPOSITO = TLC.DEPOSITO
+		    	AND 1 = (CASE WHEN SUMA_PAGOS <> SUMA_IMPORTE THEN 1 END); 
+		 END IF;
+    	-- FIN LIQUIDACIÓN COMPLEMENTARIA
+    	
+    	UPDATE F
+    	SET ESTADO_REPARTO = CASE 
+    		WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 2
+			WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 3
+			ELSE 4 
+		END
+		FROM EXT.FINAL_REPEXT_PAGOS_FILE_TEST F
+		INNER JOIN :TEMP_FINAL_PAGOS_BASES_5_82_RG_MACB38P T ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+		AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID;
+		
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_PAGOS_FILE_TEST ESTADOS ACTUALIZADOS: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+		
+		UPDATE F
+            SET ESTADO_REPARTO = CASE 
+    				WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 2
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 3
+					ELSE 4 
+				END --REPARTO CORRECTO
+			FROM :TEMP_REPEXT_PAGOS_REPARTO_FILE F
+			INNER JOIN :TEMP_FINAL_PAGOS_BASES_5_82_RG_MACB38P T ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+			AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+			WHERE 1 = (CASE 
+    				WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 1
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+					ELSE 0 
+				END)
+	--		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID
+			;
+        CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_REPEXT_PAGOS_REPARTO_FILE ESTADOS ACTUALIZADOS: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');   
+                                   
+		
+		INSERT INTO EXT.FINAL_REPEXT_FILE_TEST("TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+            ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+            ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+            ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ")
+        SELECT "TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+            ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+            ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+            ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ"
+        FROM :TEMP_FINAL_PAGOS_BASES_5_82_RG_MACB38P
+        WHERE 1 = (
+        	CASE 
+        		WHEN (IMPORTE_PAGO - IFNULL(SUMA_IMPORTE,0)) = 0 THEN 1
+    			WHEN (IMPORTE_PAGO - IFNULL(SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+    		ELSE 0 
+    		END);
+        
+        ---------------------------------------------------------------------------------------------------
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_FILE_TEST INSERTADOS: ' ||::ROWCOUNT, v_log_count, v_idproceso, 'info');	
+		---------------------------------------------------------------------------------------------------
+		
+		TEMP_FINAL_PAGOS_BASES_5_82_RG_MACB38P_DIF =
+			SELECT T.PERIODSEQ,T.POS_PRIN,T.TIPO_DOCUMENTO,T.DEPOSITSEQ,T.EARNINGCODEID,T.EARNINGGROUPID,T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0) AS DIF,
+				T.ORDERID,T.LINENUMBER,T.SUBLINENUMBER,T.EVENTTYPEID, T.COMPENSATIONDATE,
+				ROW_NUMBER() OVER(
+                      		PARTITION BY T.PERIODSEQ,T.POS_PRIN,T.TIPO_DOCUMENTO,T.DEPOSITSEQ,T.EARNINGCODEID,T.EARNINGGROUPID
+                      		--ORDER BY T.ORDERID
+                      ) AS RN_TRX
+			FROM :TEMP_FINAL_PAGOS_BASES_5_82_RG_MACB38P T
+			WHERE 1 = (CASE 
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 0
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+					ELSE 0 
+				END)
+		;
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_FINAL_PAGOS_BASES_5_82_RG_MACB38P_DIF: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+		UPDATE F
+    	SET F.IMPORTE = F.IMPORTE + T.DIF
+    	FROM EXT.FINAL_REPEXT_FILE_TEST F
+    	INNER JOIN :TEMP_FINAL_PAGOS_BASES_5_82_RG_MACB38P_DIF T  ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+		AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID
+		AND F.ORDERID = T.ORDERID AND F.LINENUMBER = T.LINENUMBER AND F.SUBLINENUMBER = T.SUBLINENUMBER AND F.EVENTTYPEID = T.EVENTTYPEID AND F.COMPENSATIONDATE = T.COMPENSATIONDATE
+		AND T.RN_TRX = 1
+		;
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_FILE_TEST IMPORTE_DIF: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');		
+        
+        
+        
+        ---------------------------------------------------------------------------------------------------
+		-- 5_82_RT
+		---------------------------------------------------------------------------------------------------
+		--BASES
+		IF i_tipo_reparto = 'CIERRE' THEN
+			TEMP_BASES_5_82_RT = SELECT * 
+	    		FROM EXT.FINAL_BASES_REPARTO_POLIZA_FILE B
+	    		WHERE PERIODSEQ = i_periodSeq
+	    		--RAMO EARNINGGROUPID = '03-RT'
+	    		--AND PRODUCTID LIKE '032%'
+	    		;
+	    	CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_BASES_5_82_RT: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+	    ELSE
+	    	TEMP_BASES_5_82_RT = SELECT * 
+    		FROM EXT.FINAL_BASES_REPARTO_POLIZA_FILE_NUEVA_BASE_REPARTO B
+    		WHERE PERIODSEQ = v_periodSeqAnterior
+    		--RAMO EARNINGGROUPID = '03-RT'
+    		--AND PRODUCTID LIKE '032%'
+    		;
+    	CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_BASES_5_82_RT (BALANCE): ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+    	END IF;
+		
+
+		--BASES_TOTAL_IMPORTE
+		BASES_TOTAL_IMPORTE_5_82_RT = 
+			SELECT POSITIONSEQ, SUM(LOC_RESP) AS SUMA_IMPORTE
+			FROM :TEMP_BASES_5_82_RT
+			WHERE LOC_RESP <> 0
+			GROUP BY POSITIONSEQ;				
+			
+		--FINAL
+    	TEMP_FINAL_PAGOS_BASES_5_82_RT = SELECT P.PARTICIPANTSEQ,
+                                P.POSITIONSEQ,
+                                P.PERIODSEQ,
+                                :v_periodName AS PERIODO,
+                                P.POS_CALLIDUS POSITIONNAME,
+                                P.POS_PRIN,
+                                P.NIF,
+                                P.MANAGER_POS_PRIN,
+                                ORDERID,
+                                LINENUMBER,
+                                SUBLINENUMBER,
+                                EVENTTYPEID,
+                                PRODUCTID,
+                                CODIGO_POLIZA,
+                                COMPENSATIONDATE,
+                                ESTADO,
+                                P.PROGRAMA,
+                                P.TIPO_PAGO,
+                                P.DEPOSITO,
+                                P.DEPOSITSEQ,
+                                P.IMPORTE IMPORTE_PAGO,
+                                P.EARNINGCODEID,
+                                P.EARNINGGROUPID,
+                                P.TIPO_DOCUMENTO,
+                                P.TIPO_AGENTE,
+                                B.LOC_RESP AS IMPORTE,
+                                -- SUM(B.LOC_RESP) OVER(PARTITION BY P.POSITIONSEQ) AS SUMA_IMPORTE,
+                                BT.SUMA_IMPORTE AS SUMA_IMPORTE,
+                                NULL AS TIPO_REPARTO,
+                                0 AS NUM_TRAMO,
+                                NULL AS REPARTO_TIPO_BASE,
+                                NULL AS REPARTO_PORCENTAJE,
+                                POLIZA_FISICA,
+                                POLIZA_CORREGIDA,
+                                PRIMA_CORREGIDA,
+                                PRIMA_NETA,
+                                PRIMA_NETA_ANUAL,
+                                PRIMA_COMIS_S4 PRIMA_COMIS,
+                                NULL AS COEF_TIPO_BASE,
+                                NULL AS COEF_CORRECTOR,
+                                COD_AGENTE,
+                                P.TIPO_LIQ
+    					FROM :TEMP_PAGOS_DIRECTOS_5_RT P
+						INNER JOIN :BASES_TOTAL_IMPORTE_5_82_RT BT ON BT.POSITIONSEQ = P.POSITIONSEQ
+    					INNER JOIN :TEMP_BASES_5_82_RT B ON P.POSITIONSEQ = B.POSITIONSEQ
+    					--POSITION
+    					WHERE ((B.POS_PRIN = P.POS_PRIN AND (IFNULL(B.CAMBIO_AG_INSP,'0') = '0')) OR B.MANAGER_POS_PRIN = P.POS_PRIN OR B.MAN_ACT_POS_PRIN = P.POS_PRIN)
+    					--TIPO AGENTE
+                        AND P.TIPO_AGENTE = '82'
+                        --RAMO
+    					AND B.PRODUCTID LIKE '%'||RIGHT(P.EARNINGCODEID,5)||'%'
+    					--PERMANENCIA
+    					AND B.EVENTTYPEID = 'Pago Comercial' AND B.CODIGO_POLIZA = P.EARNINGGROUPID AND ESTADO = SUBSTRING(P.EARNINGCODEID,1,3)
+    					--TIPO CONCEPTO
+    					AND B.LOC_RESP <> 0
+    					-- AND (ORDERID,LINENUMBER,SUBLINENUMBER,EVENTTYPEID) NOT IN ( 
+         --                           SELECT X.ORDERID,X.LINENUMBER,X.SUBLINENUMBER,X.EVENTTYPEID FROM EXT.FINAL_REPEXT_FILE_TEST X 
+         --                           WHERE X.POS_PRIN = P.POS_PRIN
+         --                               AND X.PERIODSEQ = P.PERIODSEQ
+         --                               AND X.EARNINGCODEID = P.EARNINGCODEID
+         --                               AND X.EARNINGGROUPID = P.EARNINGGROUPID
+         --                               AND X.TIPO_DOCUMENTO = P.TIPO_DOCUMENTO )
+    					
+
+ 						AND NOT EXISTS (
+							SELECT 1
+							FROM EXT.FINAL_REPEXT_FILE_TEST X 
+								WHERE X.POS_PRIN       = P.POS_PRIN
+									AND X.PERIODSEQ      = P.PERIODSEQ
+									AND X.EARNINGCODEID  = P.EARNINGCODEID
+									AND X.EARNINGGROUPID = P.EARNINGGROUPID
+									AND X.TIPO_DOCUMENTO = P.TIPO_DOCUMENTO
+									AND X.ORDERID        = B.ORDERID
+									AND X.LINENUMBER     = B.LINENUMBER
+									AND X.SUBLINENUMBER  = B.SUBLINENUMBER
+									AND X.EVENTTYPEID    = B.EVENTTYPEID
+							)
+    					
+    					;
+    	CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_FINAL_PAGOS_BASES_5_82_RT: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');	
+    	
+    
+    	
+    	--LIQUIDACIÓN COMPLEMENTARIA
+		IF v_num_post > 1 AND i_tipo_reparto = 'CIERRE' THEN
+		
+			TEMP_PAGOS_DIRECTOS_5_82_RT_LC = SELECT SUM(IMPORTE) SUMA_PAGOS,PERIODSEQ,POS_PRIN,EARNINGGROUPID,EARNINGCODEID,DEPOSITO 
+				FROM :TEMP_FINAL_PAGOS_BASES_5_82_RT
+				WHERE TIPO_LIQ IN ('CIERRE','LIQ')
+				GROUP BY PERIODSEQ,POS_PRIN,EARNINGGROUPID,EARNINGCODEID,DEPOSITO;
+		
+			INSERT INTO EXT.FINAL_REPEXT_FILE_TEST("TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+		        ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+		        ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+		        ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ")
+		    SELECT "TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+		        ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE"*(-1),"TIPO_AGENTE","TIPO_DOCUMENTO",TF."EARNINGGROUPID"
+		        ,TF."EARNINGCODEID",TF.SUMA_IMPORTE,"DEPOSITSEQ",TF."DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+		        ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF",TF."POS_PRIN","POSITIONNAME","PERIODO",TF."PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ"
+		    FROM :TEMP_FINAL_PAGOS_BASES_5_82_RT TF 
+		    	INNER JOIN :TEMP_PAGOS_DIRECTOS_5_82_RT_LC TLC ON TF.PERIODSEQ = TLC.PERIODSEQ AND TF.POS_PRIN = TLC.POS_PRIN 
+		    	AND TF.EARNINGGROUPID = TLC.EARNINGGROUPID AND TF.EARNINGCODEID = TLC. EARNINGCODEID AND TF.DEPOSITO = TLC.DEPOSITO
+		    	AND 1 = (CASE WHEN SUMA_PAGOS <> SUMA_IMPORTE THEN 1 END); 
+		 END IF;
+    	-- FIN LIQUIDACIÓN COMPLEMENTARIA
+    	
+    	UPDATE F
+    	SET ESTADO_REPARTO = CASE 
+    		WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 2
+			WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 3
+			ELSE 4 
+		END
+		FROM EXT.FINAL_REPEXT_PAGOS_FILE_TEST F
+		INNER JOIN :TEMP_FINAL_PAGOS_BASES_5_82_RT T ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+		AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID;
+		
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_PAGOS_FILE_TEST ESTADOS ACTUALIZADOS: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+		
+		UPDATE F
+            SET ESTADO_REPARTO = CASE 
+    				WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 2
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 3
+					ELSE 4 
+				END --REPARTO CORRECTO
+			FROM :TEMP_REPEXT_PAGOS_REPARTO_FILE F
+			INNER JOIN :TEMP_FINAL_PAGOS_BASES_5_82_RT T ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+			AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+			WHERE 1 = (CASE 
+    				WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 1
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+					ELSE 0 
+				END)
+	--		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID
+			;
+        CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_REPEXT_PAGOS_REPARTO_FILE ESTADOS ACTUALIZADOS: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');   
+                                   
+		
+		INSERT INTO EXT.FINAL_REPEXT_FILE_TEST("TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+            ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+            ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+            ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ")
+        SELECT "TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+            ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+            ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+            ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ"
+        FROM :TEMP_FINAL_PAGOS_BASES_5_82_RT
+        WHERE 1 = (
+        	CASE 
+        		WHEN (IMPORTE_PAGO - IFNULL(SUMA_IMPORTE,0)) = 0 THEN 1
+    			WHEN (IMPORTE_PAGO - IFNULL(SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+    		ELSE 0 
+    		END);
+		---------------------------------------------------------------------------------------------------
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_FILE_TEST INSERTADOS: ' ||::ROWCOUNT, v_log_count, v_idproceso, 'info');	
+		---------------------------------------------------------------------------------------------------
+		
+		TEMP_FINAL_PAGOS_BASES_5_82_RT_DIF =
+			SELECT T.PERIODSEQ,T.POS_PRIN,T.TIPO_DOCUMENTO,T.DEPOSITSEQ,T.EARNINGCODEID,T.EARNINGGROUPID,T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0) AS DIF,
+					T.ORDERID,T.LINENUMBER,T.SUBLINENUMBER,T.EVENTTYPEID, T.COMPENSATIONDATE,
+				ROW_NUMBER() OVER(
+                      		PARTITION BY T.PERIODSEQ,T.POS_PRIN,T.TIPO_DOCUMENTO,T.DEPOSITSEQ,T.EARNINGCODEID,T.EARNINGGROUPID
+                      		--ORDER BY T.ORDERID
+                      ) AS RN_TRX
+			FROM :TEMP_FINAL_PAGOS_BASES_5_82_RT T
+			WHERE 1 = (CASE 
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 0
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+					ELSE 0 
+				END)
+		;
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_FINAL_PAGOS_BASES_5_82_RT_DIF: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+		UPDATE F
+    	SET F.IMPORTE = F.IMPORTE + T.DIF
+    	FROM EXT.FINAL_REPEXT_FILE_TEST F
+    	INNER JOIN :TEMP_FINAL_PAGOS_BASES_5_82_RT_DIF T  ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+		AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID
+		AND F.ORDERID = T.ORDERID AND F.LINENUMBER = T.LINENUMBER AND F.SUBLINENUMBER = T.SUBLINENUMBER AND F.EVENTTYPEID = T.EVENTTYPEID AND F.COMPENSATIONDATE = T.COMPENSATIONDATE
+		AND T.RN_TRX = 1
+		;
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_FILE_TEST IMPORTE_DIF: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');		
+		
+		
+		---------------------------------------------------------------------------------------------------
+		-- 5_82_RG
+		---------------------------------------------------------------------------------------------------
+		--BASES
+		IF i_tipo_reparto = 'CIERRE' THEN
+			TEMP_BASES_5_82_RG = SELECT * 
+	    		FROM EXT.FINAL_BASES_REPARTO_POLIZA_FILE B
+	    		WHERE PERIODSEQ = i_periodSeq
+	    		--RAMO EARNINGGROUPID = '03-RT'
+	    		--AND PRODUCTID LIKE '032%'
+	    		;
+	    	CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_BASES_5_82_RG ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+	    ELSE
+	    	TEMP_BASES_5_82_RG = SELECT * 
+    		FROM EXT.FINAL_BASES_REPARTO_POLIZA_FILE_NUEVA_BASE_REPARTO B
+    		WHERE PERIODSEQ = v_periodSeqAnterior
+    		--RAMO EARNINGGROUPID = '03-RT'
+    		--AND PRODUCTID LIKE '032%'
+    		;
+    		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_BASES_5_82_RG (BALANCE): ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+    	END IF;
+			
+			
+		     --BASES_TOTAL_IMPORTE
+		BASES_TOTAL_IMPORTE_5_82_RG = 
+			SELECT POSITIONSEQ, SUM(LOC_RESP) AS SUMA_IMPORTE
+			FROM :TEMP_BASES_5_82_RG
+			WHERE LOC_RESP <> 0
+			GROUP BY POSITIONSEQ;	
+			
+		--FINAL
+    	TEMP_FINAL_PAGOS_BASES_5_82_RG = SELECT P.PARTICIPANTSEQ,
+                                P.POSITIONSEQ,
+                                P.PERIODSEQ,
+                                :v_periodName AS PERIODO,
+                                P.POS_CALLIDUS POSITIONNAME,
+                                P.POS_PRIN,
+                                P.NIF,
+                                P.MANAGER_POS_PRIN,
+                                ORDERID,
+                                LINENUMBER,
+                                SUBLINENUMBER,
+                                EVENTTYPEID,
+                                PRODUCTID,
+                                CODIGO_POLIZA,
+                                COMPENSATIONDATE,
+                                ESTADO,
+                                P.PROGRAMA,
+                                P.TIPO_PAGO,
+                                P.DEPOSITO,
+                                P.DEPOSITSEQ,
+                                P.IMPORTE IMPORTE_PAGO,
+                                P.EARNINGCODEID,
+                                P.EARNINGGROUPID,
+                                P.TIPO_DOCUMENTO,
+                                P.TIPO_AGENTE,
+                                B.LOC_RESP AS IMPORTE,
+                                -- SUM(B.LOC_RESP) OVER(PARTITION BY P.POSITIONSEQ) AS SUMA_IMPORTE,
+                                BT.SUMA_IMPORTE AS SUMA_IMPORTE,
+                                NULL AS TIPO_REPARTO,
+                                0 AS NUM_TRAMO,
+                                NULL AS REPARTO_TIPO_BASE,
+                                NULL AS REPARTO_PORCENTAJE,
+                                POLIZA_FISICA,
+                                POLIZA_CORREGIDA,
+                                PRIMA_CORREGIDA,
+                                PRIMA_NETA,
+                                PRIMA_NETA_ANUAL,
+                                PRIMA_COMIS_S4 PRIMA_COMIS,
+                                NULL AS COEF_TIPO_BASE,
+                                NULL AS COEF_CORRECTOR,
+                                COD_AGENTE,
+                                P.TIPO_LIQ
+    					FROM :TEMP_PAGOS_DIRECTOS_5_RG P
+						INNER JOIN :BASES_TOTAL_IMPORTE_5_82_RG BT ON BT.POSITIONSEQ = P.POSITIONSEQ
+    					INNER JOIN :TEMP_BASES_5_82_RG B ON P.POSITIONSEQ = B.POSITIONSEQ
+    					WHERE ((B.POS_PRIN = P.POS_PRIN AND (IFNULL(B.CAMBIO_AG_INSP,'0') = '0')) OR B.MANAGER_POS_PRIN = P.POS_PRIN OR B.MAN_ACT_POS_PRIN = P.POS_PRIN)
+    					--TIPO AGENTE
+                        AND P.TIPO_AGENTE = '82'
+                        --RAMO
+    					AND B.PRODUCTID LIKE '%'||RIGHT(P.EARNINGCODEID,5)||'%'
+    					--PERMANENCIA
+    					AND B.EVENTTYPEID = 'Pago Comercial' AND B.CODIGO_POLIZA = P.EARNINGGROUPID AND ESTADO = SUBSTRING(P.EARNINGCODEID,1,3)
+    					--TIPO CONCEPTO
+    					AND B.LOC_RESP <> 0
+    					-- AND (ORDERID,LINENUMBER,SUBLINENUMBER,EVENTTYPEID) NOT IN ( 
+         --                           SELECT X.ORDERID,X.LINENUMBER,X.SUBLINENUMBER,X.EVENTTYPEID FROM EXT.FINAL_REPEXT_FILE_TEST X 
+         --                           WHERE X.POS_PRIN = P.POS_PRIN
+         --                               AND X.PERIODSEQ = P.PERIODSEQ
+         --                               AND X.EARNINGCODEID = P.EARNINGCODEID
+         --                               AND X.EARNINGGROUPID = P.EARNINGGROUPID
+         --                               AND X.TIPO_DOCUMENTO = P.TIPO_DOCUMENTO )
+    					
+
+ 						AND NOT EXISTS (
+							SELECT 1
+							FROM EXT.FINAL_REPEXT_FILE_TEST X 
+								WHERE X.POS_PRIN       = P.POS_PRIN
+									AND X.PERIODSEQ      = P.PERIODSEQ
+									AND X.EARNINGCODEID  = P.EARNINGCODEID
+									AND X.EARNINGGROUPID = P.EARNINGGROUPID
+									AND X.TIPO_DOCUMENTO = P.TIPO_DOCUMENTO
+									AND X.ORDERID        = B.ORDERID
+									AND X.LINENUMBER     = B.LINENUMBER
+									AND X.SUBLINENUMBER  = B.SUBLINENUMBER
+									AND X.EVENTTYPEID    = B.EVENTTYPEID
+							)
+    					
+    					;
+    	CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_FINAL_PAGOS_BASES_5_82_RG: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');	
+    	
+    
+    	
+    	--LIQUIDACIÓN COMPLEMENTARIA
+		IF v_num_post > 1 AND i_tipo_reparto = 'CIERRE' THEN
+		
+			TEMP_PAGOS_DIRECTOS_5_82_RG_LC = SELECT SUM(IMPORTE) SUMA_PAGOS,PERIODSEQ,POS_PRIN,EARNINGGROUPID,EARNINGCODEID,DEPOSITO 
+				FROM :TEMP_FINAL_PAGOS_BASES_5_82_RG
+				WHERE TIPO_LIQ IN ('CIERRE','LIQ')
+				GROUP BY PERIODSEQ,POS_PRIN,EARNINGGROUPID,EARNINGCODEID,DEPOSITO;
+		
+			INSERT INTO EXT.FINAL_REPEXT_FILE_TEST("TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+		        ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+		        ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+		        ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ")
+		    SELECT "TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+		        ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE"*(-1),"TIPO_AGENTE","TIPO_DOCUMENTO",TF."EARNINGGROUPID"
+		        ,TF."EARNINGCODEID",TF.SUMA_IMPORTE,"DEPOSITSEQ",TF."DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+		        ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF",TF."POS_PRIN","POSITIONNAME","PERIODO",TF."PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ"
+		    FROM :TEMP_FINAL_PAGOS_BASES_5_82_RG TF 
+		    	INNER JOIN :TEMP_PAGOS_DIRECTOS_5_82_RG_LC TLC ON TF.PERIODSEQ = TLC.PERIODSEQ AND TF.POS_PRIN = TLC.POS_PRIN 
+		    	AND TF.EARNINGGROUPID = TLC.EARNINGGROUPID AND TF.EARNINGCODEID = TLC. EARNINGCODEID AND TF.DEPOSITO = TLC.DEPOSITO
+		    	AND 1 = (CASE WHEN SUMA_PAGOS <> SUMA_IMPORTE THEN 1 END); 
+		 END IF;
+    	-- FIN LIQUIDACIÓN COMPLEMENTARIA
+    	
+    	
+    	UPDATE F
+    	SET ESTADO_REPARTO = CASE 
+    		WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 2
+			WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 3
+			ELSE 4 
+		END
+		FROM EXT.FINAL_REPEXT_PAGOS_FILE_TEST F
+		INNER JOIN :TEMP_FINAL_PAGOS_BASES_5_82_RG T ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+		AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID;
+		
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_PAGOS_FILE_TEST ESTADOS ACTUALIZADOS: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+		
+		UPDATE F
+            SET ESTADO_REPARTO = CASE 
+    				WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 2
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 3
+					ELSE 4 
+				END --REPARTO CORRECTO
+			FROM :TEMP_REPEXT_PAGOS_REPARTO_FILE F
+			INNER JOIN :TEMP_FINAL_PAGOS_BASES_5_82_RG T ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+			AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+			WHERE 1 = (CASE 
+    				WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 1
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+					ELSE 0 
+				END)
+	--		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID
+			;
+        CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_REPEXT_PAGOS_REPARTO_FILE ESTADOS ACTUALIZADOS: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');   
+                                   
+		
+		INSERT INTO EXT.FINAL_REPEXT_FILE_TEST("TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+            ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+            ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+            ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ")
+        SELECT "TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+            ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+            ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+            ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ"
+        FROM :TEMP_FINAL_PAGOS_BASES_5_82_RG
+        WHERE 1 = (
+        	CASE 
+        		WHEN (IMPORTE_PAGO - IFNULL(SUMA_IMPORTE,0)) = 0 THEN 1
+    			WHEN (IMPORTE_PAGO - IFNULL(SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+    		ELSE 0 
+    		END);
+        ---------------------------------------------------------------------------------------------------
+ 		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_FILE_TEST INSERTADOS: ' ||::ROWCOUNT, v_log_count, v_idproceso, 'info');	
+		---------------------------------------------------------------------------------------------------
+		
+		TEMP_FINAL_PAGOS_BASES_5_82_RG_DIF =
+			SELECT T.PERIODSEQ,T.POS_PRIN,T.TIPO_DOCUMENTO,T.DEPOSITSEQ,T.EARNINGCODEID,T.EARNINGGROUPID,T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0) AS DIF,
+				T.ORDERID,T.LINENUMBER,T.SUBLINENUMBER,T.EVENTTYPEID, T.COMPENSATIONDATE,
+				ROW_NUMBER() OVER(
+                      		PARTITION BY T.PERIODSEQ,T.POS_PRIN,T.TIPO_DOCUMENTO,T.DEPOSITSEQ,T.EARNINGCODEID,T.EARNINGGROUPID
+                      		--ORDER BY T.ORDERID
+                      ) AS RN_TRX
+			FROM :TEMP_FINAL_PAGOS_BASES_5_82_RG T
+			WHERE 1 = (CASE 
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 0
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+					ELSE 0 
+				END)
+		;
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_FINAL_PAGOS_BASES_5_82_RG_DIF: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+		UPDATE F
+    	SET F.IMPORTE = F.IMPORTE + T.DIF
+    	FROM EXT.FINAL_REPEXT_FILE_TEST F
+    	INNER JOIN :TEMP_FINAL_PAGOS_BASES_5_82_RG_DIF T  ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+		AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID
+		AND F.ORDERID = T.ORDERID AND F.LINENUMBER = T.LINENUMBER AND F.SUBLINENUMBER = T.SUBLINENUMBER AND F.EVENTTYPEID = T.EVENTTYPEID AND F.COMPENSATIONDATE = T.COMPENSATIONDATE
+		AND T.RN_TRX = 1
+		;
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_FILE_TEST IMPORTE_DIF: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');		
+       
+        
+        
+        ---------------------------------------------------------------------------------------------------
+		-- 5_MAC38P_RT
+		---------------------------------------------------------------------------------------------------
+		--BASES
+		IF i_tipo_reparto = 'CIERRE' THEN
+			TEMP_BASES_5_MAC38P_RT = SELECT * 
+	    		FROM EXT.FINAL_BASES_REPARTO_POLIZA_FILE B
+	    		WHERE PERIODSEQ = i_periodSeq
+	    		--RAMO EARNINGGROUPID = '03-RT'
+	    		--AND PRODUCTID LIKE '032%'
+	    		;
+	    	CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_BASES_5_MAC38P_RT: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+	    ELSE
+	    	TEMP_BASES_5_MAC38P_RT = SELECT * 
+    		FROM EXT.FINAL_BASES_REPARTO_POLIZA_FILE_NUEVA_BASE_REPARTO B
+    		WHERE PERIODSEQ = v_periodSeqAnterior
+    		--RAMO EARNINGGROUPID = '03-RT'
+    		--AND PRODUCTID LIKE '032%'
+    		;
+    		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_BASES_5_MAC38P_RT (BALANCE): ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+    	END IF;
+			
+
+		--      --BASES_TOTAL_IMPORTE
+		-- BASES_TOTAL_IMPORTE_5_MACB38P_RT = 
+		-- 	SELECT POSITIONSEQ, SUM(IMPORTE_COMISION) AS SUMA_IMPORTE
+		-- 	FROM :TEMP_BASES_5_MAC38P_RT
+		-- 	WHERE IMPORTE_COMISION <> 0
+		-- 	GROUP BY POSITIONSEQ;				
+	
+	
+		--FINAL
+    	TEMP_FINAL_PAGOS_BASES_5_MAC38P_RT = SELECT P.PARTICIPANTSEQ,
+                                P.POSITIONSEQ,
+                                P.PERIODSEQ,
+                                :v_periodName AS PERIODO,
+                                P.POS_CALLIDUS POSITIONNAME,
+                                P.POS_PRIN,
+                                P.NIF,
+                                P.MANAGER_POS_PRIN,
+                                ORDERID,
+                                LINENUMBER,
+                                SUBLINENUMBER,
+                                EVENTTYPEID,
+                                PRODUCTID,
+                                CODIGO_POLIZA,
+                                COMPENSATIONDATE,
+                                ESTADO,
+                                P.PROGRAMA,
+                                P.TIPO_PAGO,
+                                P.DEPOSITO,
+                                P.DEPOSITSEQ,
+                                P.IMPORTE IMPORTE_PAGO,
+                                P.EARNINGCODEID,
+                                P.EARNINGGROUPID,
+                                P.TIPO_DOCUMENTO,
+                                P.TIPO_AGENTE,
+                                B.IMPORTE_COMISION AS IMPORTE,
+                                (SELECT SUM(IMPORTE_COMISION)
+                                	FROM :TEMP_BASES_5_MAC38P_RT S
+                                	WHERE S.POSITIONSEQ = B.POSITIONSEQ
+                                	AND S.PRODUCTID LIKE '%'||RIGHT(P.EARNINGCODEID,5)
+									AND S.EVENTTYPEID = 'Pago Comercial'
+                                ) AS SUMA_IMPORTE,
+                                NULL AS TIPO_REPARTO,
+                                0 AS NUM_TRAMO,
+                                NULL AS REPARTO_TIPO_BASE,
+                                NULL AS REPARTO_PORCENTAJE,
+                                POLIZA_FISICA,
+                                POLIZA_CORREGIDA,
+                                PRIMA_CORREGIDA,
+                                PRIMA_NETA,
+                                PRIMA_NETA_ANUAL,
+                                PRIMA_COMIS_S4 PRIMA_COMIS,
+                                NULL AS COEF_TIPO_BASE,
+                                NULL AS COEF_CORRECTOR,
+                                COD_AGENTE,
+                                P.TIPO_LIQ
+    					FROM :TEMP_PAGOS_DIRECTOS_5_RT P
+						--INNER JOIN :BASES_TOTAL_IMPORTE_5_MACB38P_RT BT ON BT.POSITIONSEQ = P.POSITIONSEQ
+    					INNER JOIN :TEMP_BASES_5_MAC38P_RT B ON P.POSITIONSEQ = B.POSITIONSEQ
+    					--POSITION
+    					WHERE ((B.POS_PRIN = P.POS_PRIN AND (IFNULL(B.CAMBIO_AG_INSP,'0') = '0')) OR B.MANAGER_POS_PRIN = P.POS_PRIN)
+    					--TIPO AGENTE
+                        AND P.TIPO_AGENTE != '82'
+                        --RAMO
+    					AND B.PRODUCTID LIKE '%'||RIGHT(P.EARNINGCODEID,5)
+    					--PERMANENCIA
+    					AND B.EVENTTYPEID = 'Pago Comercial' AND B.CODIGO_POLIZA = P.EARNINGGROUPID AND ESTADO = SUBSTRING(P.EARNINGCODEID,1,3)
+    					--TIPO CONCEPTO
+    					AND B.IMPORTE_COMISION <> 0
+    					-- AND (ORDERID,LINENUMBER,SUBLINENUMBER,EVENTTYPEID) NOT IN ( 
+         --                           SELECT X.ORDERID,X.LINENUMBER,X.SUBLINENUMBER,X.EVENTTYPEID FROM EXT.FINAL_REPEXT_FILE_TEST X 
+         --                           WHERE X.POS_PRIN = P.POS_PRIN
+         --                               AND X.PERIODSEQ = P.PERIODSEQ
+         --                               AND X.EARNINGCODEID = P.EARNINGCODEID
+         --                               AND X.EARNINGGROUPID = P.EARNINGGROUPID
+         --                               AND X.TIPO_DOCUMENTO = P.TIPO_DOCUMENTO )
+    					
+
+ 						AND NOT EXISTS (
+							SELECT 1
+							FROM EXT.FINAL_REPEXT_FILE_TEST X 
+								WHERE X.POS_PRIN       = P.POS_PRIN
+									AND X.PERIODSEQ      = P.PERIODSEQ
+									AND X.EARNINGCODEID  = P.EARNINGCODEID
+									AND X.EARNINGGROUPID = P.EARNINGGROUPID
+									AND X.TIPO_DOCUMENTO = P.TIPO_DOCUMENTO
+									AND X.ORDERID        = B.ORDERID
+									AND X.LINENUMBER     = B.LINENUMBER
+									AND X.SUBLINENUMBER  = B.SUBLINENUMBER
+									AND X.EVENTTYPEID    = B.EVENTTYPEID
+							)
+    					
+    					;
+    	CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_FINAL_PAGOS_BASES_5_MAC38P_RT: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');	
+    	
+    	--SELECT 'TEMP_FINAL_PAGOS_BASES_5_MAC38P_RT',* FROM :TEMP_FINAL_PAGOS_BASES_5_MAC38P_RT;
+    	
+    	--LIQUIDACIÓN COMPLEMENTARIA
+		IF v_num_post > 1 AND i_tipo_reparto = 'CIERRE' THEN
+		
+			TEMP_PAGOS_DIRECTOS_5_MAC38P_RT_LC = SELECT SUM(IMPORTE) SUMA_PAGOS,PERIODSEQ,POS_PRIN,EARNINGGROUPID,EARNINGCODEID,DEPOSITO 
+				FROM :TEMP_FINAL_PAGOS_BASES_5_MAC38P_RT
+				WHERE TIPO_LIQ IN ('CIERRE','LIQ')
+				GROUP BY PERIODSEQ,POS_PRIN,EARNINGGROUPID,EARNINGCODEID,DEPOSITO;
+		
+			INSERT INTO EXT.FINAL_REPEXT_FILE_TEST("TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+		        ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+		        ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+		        ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ")
+		    SELECT "TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+		        ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE"*(-1),"TIPO_AGENTE","TIPO_DOCUMENTO",TF."EARNINGGROUPID"
+		        ,TF."EARNINGCODEID",TF.SUMA_IMPORTE,"DEPOSITSEQ",TF."DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+		        ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF",TF."POS_PRIN","POSITIONNAME","PERIODO",TF."PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ"
+		    FROM :TEMP_FINAL_PAGOS_BASES_5_MAC38P_RT TF 
+		    	INNER JOIN :TEMP_PAGOS_DIRECTOS_5_MAC38P_RT_LC TLC ON TF.PERIODSEQ = TLC.PERIODSEQ AND TF.POS_PRIN = TLC.POS_PRIN 
+		    	AND TF.EARNINGGROUPID = TLC.EARNINGGROUPID AND TF.EARNINGCODEID = TLC. EARNINGCODEID AND TF.DEPOSITO = TLC.DEPOSITO
+		    	AND 1 = (CASE WHEN SUMA_PAGOS <> SUMA_IMPORTE THEN 1 END); 
+		 END IF;
+    	-- FIN LIQUIDACIÓN COMPLEMENTARIA
+    	
+    	UPDATE F
+    	SET ESTADO_REPARTO = CASE 
+    		WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 2
+			WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 3
+			ELSE 4 
+		END
+		FROM EXT.FINAL_REPEXT_PAGOS_FILE_TEST F
+		INNER JOIN :TEMP_FINAL_PAGOS_BASES_5_MAC38P_RT T ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+		AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID;
+		
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_PAGOS_FILE_TEST ESTADOS ACTUALIZADOS: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+		
+		UPDATE F
+            SET ESTADO_REPARTO = CASE 
+    				WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 2
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 3
+					ELSE 4 
+				END --REPARTO CORRECTO
+			FROM :TEMP_REPEXT_PAGOS_REPARTO_FILE F
+			INNER JOIN :TEMP_FINAL_PAGOS_BASES_5_MAC38P_RT T ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+			AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+			WHERE 1 = (CASE 
+    				WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 1
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+					ELSE 0 
+				END)
+	--		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID
+			;
+        CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_REPEXT_PAGOS_REPARTO_FILE ESTADOS ACTUALIZADOS: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');   
+                                   
+		
+		INSERT INTO EXT.FINAL_REPEXT_FILE_TEST("TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+            ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+            ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+            ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ")
+        SELECT "TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+            ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+            ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+            ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ"
+        FROM :TEMP_FINAL_PAGOS_BASES_5_MAC38P_RT
+        WHERE 1 = (
+        	CASE 
+        		WHEN (IMPORTE_PAGO - IFNULL(SUMA_IMPORTE,0)) = 0 THEN 1
+    			WHEN (IMPORTE_PAGO - IFNULL(SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+    		ELSE 0 
+    		END);
+		---------------------------------------------------------------------------------------------------
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_FILE_TEST INSERTADOS: ' ||::ROWCOUNT, v_log_count, v_idproceso, 'info');	
+		---------------------------------------------------------------------------------------------------
+		
+		TEMP_FINAL_PAGOS_BASES_5_MAC38P_RT_DIF =
+			SELECT T.PERIODSEQ,T.POS_PRIN,T.TIPO_DOCUMENTO,T.DEPOSITSEQ,T.EARNINGCODEID,T.EARNINGGROUPID,T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0) AS DIF,
+					T.ORDERID,T.LINENUMBER,T.SUBLINENUMBER,T.EVENTTYPEID, T.COMPENSATIONDATE,
+				ROW_NUMBER() OVER(
+                      		PARTITION BY T.PERIODSEQ,T.POS_PRIN,T.TIPO_DOCUMENTO,T.DEPOSITSEQ,T.EARNINGCODEID,T.EARNINGGROUPID
+                      		--ORDER BY T.ORDERID
+                      ) AS RN_TRX
+			FROM :TEMP_FINAL_PAGOS_BASES_5_MAC38P_RT T
+			WHERE 1 = (CASE 
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 0
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+					ELSE 0 
+				END)
+		;
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_FINAL_PAGOS_BASES_5_MAC38P_RT_DIF: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+		UPDATE F
+    	SET F.IMPORTE = F.IMPORTE + T.DIF
+    	FROM EXT.FINAL_REPEXT_FILE_TEST F
+    	INNER JOIN :TEMP_FINAL_PAGOS_BASES_5_MAC38P_RT_DIF T  ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+		AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID
+		AND F.ORDERID = T.ORDERID AND F.LINENUMBER = T.LINENUMBER AND F.SUBLINENUMBER = T.SUBLINENUMBER AND F.EVENTTYPEID = T.EVENTTYPEID AND F.COMPENSATIONDATE = T.COMPENSATIONDATE
+		AND T.RN_TRX = 1
+		;
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_FILE_TEST IMPORTE_DIF: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');		
+		
+		
+		---------------------------------------------------------------------------------------------------
+		-- 5_MAC38P_RG
+		---------------------------------------------------------------------------------------------------
+		--BASES
+		IF i_tipo_reparto = 'CIERRE' THEN
+			TEMP_BASES_5_MAC38P_RG = SELECT * 
+	    		FROM EXT.FINAL_BASES_REPARTO_POLIZA_FILE B
+	    		WHERE PERIODSEQ = i_periodSeq
+	    		--RAMO EARNINGGROUPID = '03-RT'
+	    		--AND PRODUCTID LIKE '032%'
+	    		;
+	    	CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_BASES_5_MAC38P_RG: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+	    ELSE
+	    	TEMP_BASES_5_MAC38P_RG = SELECT * 
+    		FROM EXT.FINAL_BASES_REPARTO_POLIZA_FILE_NUEVA_BASE_REPARTO B
+    		WHERE PERIODSEQ = v_periodSeqAnterior
+    		--RAMO EARNINGGROUPID = '03-RT'
+    		--AND PRODUCTID LIKE '032%'
+    		;
+    		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_BASES_5_MAC38P_RG (BALANCE): ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+    	END IF;
+		
+
+	 --    --BASES_TOTAL_IMPORTE
+		-- BASES_TOTAL_IMPORTE_5_MAC38P_RG = 
+		-- 	SELECT POSITIONSEQ, SUM(IMPORTE_COMISION) AS SUMA_IMPORTE
+		-- 	FROM :TEMP_BASES_5_MAC38P_RG
+		-- 	WHERE IMPORTE_COMISION <> 0
+		-- 	GROUP BY POSITIONSEQ;				
+
+			
+		--FINAL
+    	TEMP_FINAL_PAGOS_BASES_5_MAC38P_RG = SELECT P.PARTICIPANTSEQ,
+                                P.POSITIONSEQ,
+                                P.PERIODSEQ,
+                                :v_periodName AS PERIODO,
+                                P.POS_CALLIDUS POSITIONNAME,
+                                P.POS_PRIN,
+                                P.NIF,
+                                P.MANAGER_POS_PRIN,
+                                ORDERID,
+                                LINENUMBER,
+                                SUBLINENUMBER,
+                                EVENTTYPEID,
+                                PRODUCTID,
+                                CODIGO_POLIZA,
+                                COMPENSATIONDATE,
+                                ESTADO,
+                                P.PROGRAMA,
+                                P.TIPO_PAGO,
+                                P.DEPOSITO,
+                                P.DEPOSITSEQ,
+                                P.IMPORTE IMPORTE_PAGO,
+                                P.EARNINGCODEID,
+                                P.EARNINGGROUPID,
+                                P.TIPO_DOCUMENTO,
+                                P.TIPO_AGENTE,
+                                B.IMPORTE_COMISION AS IMPORTE,
+                                (SELECT SUM(IMPORTE_COMISION)
+                                	FROM :TEMP_BASES_5_MAC38P_RG S
+                                	WHERE S.POSITIONSEQ = B.POSITIONSEQ
+                                	AND S.PRODUCTID LIKE '%'||RIGHT(P.EARNINGCODEID,5)
+									AND S.EVENTTYPEID = 'Pago Comercial'
+                                ) AS SUMA_IMPORTE,
+                                NULL AS TIPO_REPARTO,
+                                0 AS NUM_TRAMO,
+                                NULL AS REPARTO_TIPO_BASE,
+                                NULL AS REPARTO_PORCENTAJE,
+                                POLIZA_FISICA,
+                                POLIZA_CORREGIDA,
+                                PRIMA_CORREGIDA,
+                                PRIMA_NETA,
+                                PRIMA_NETA_ANUAL,
+                                PRIMA_COMIS_S4 PRIMA_COMIS,
+                                NULL AS COEF_TIPO_BASE,
+                                NULL AS COEF_CORRECTOR,
+                                COD_AGENTE,
+                                P.TIPO_LIQ
+    					FROM :TEMP_PAGOS_DIRECTOS_5_RG P
+						--INNER JOIN :BASES_TOTAL_IMPORTE_5_MAC38P_RG BT ON BT.POSITIONSEQ = P.POSITIONSEQ
+    					INNER JOIN :TEMP_BASES_5_MAC38P_RG B ON P.POSITIONSEQ = B.POSITIONSEQ
+    					WHERE ((B.POS_PRIN = P.POS_PRIN AND (IFNULL(B.CAMBIO_AG_INSP,'0') = '0')) OR B.MANAGER_POS_PRIN = P.POS_PRIN )
+    					--TIPO AGENTE
+                        AND P.TIPO_AGENTE != '82'
+                        --RAMO
+    					AND B.PRODUCTID LIKE '%'||RIGHT(P.EARNINGCODEID,5)
+    					--PERMANENCIA
+    					AND B.EVENTTYPEID = 'Pago Comercial' AND B.CODIGO_POLIZA = P.EARNINGGROUPID AND ESTADO = SUBSTRING(P.EARNINGCODEID,1,3)
+    					--TIPO CONCEPTO
+    					AND B.IMPORTE_COMISION <> 0
+    					-- AND (ORDERID,LINENUMBER,SUBLINENUMBER,EVENTTYPEID) NOT IN ( 
+         --                           SELECT X.ORDERID,X.LINENUMBER,X.SUBLINENUMBER,X.EVENTTYPEID FROM EXT.FINAL_REPEXT_FILE_TEST X 
+         --                           WHERE X.POS_PRIN = P.POS_PRIN
+         --                               AND X.PERIODSEQ = P.PERIODSEQ
+         --                               AND X.EARNINGCODEID = P.EARNINGCODEID
+         --                               AND X.EARNINGGROUPID = P.EARNINGGROUPID
+         --                               AND X.TIPO_DOCUMENTO = P.TIPO_DOCUMENTO )
+    					
+
+ 						AND NOT EXISTS (
+							SELECT 1
+							FROM EXT.FINAL_REPEXT_FILE_TEST X 
+								WHERE X.POS_PRIN       = P.POS_PRIN
+									AND X.PERIODSEQ      = P.PERIODSEQ
+									AND X.EARNINGCODEID  = P.EARNINGCODEID
+									AND X.EARNINGGROUPID = P.EARNINGGROUPID
+									AND X.TIPO_DOCUMENTO = P.TIPO_DOCUMENTO
+									AND X.ORDERID        = B.ORDERID
+									AND X.LINENUMBER     = B.LINENUMBER
+									AND X.SUBLINENUMBER  = B.SUBLINENUMBER
+									AND X.EVENTTYPEID    = B.EVENTTYPEID
+							)
+    					
+    					;
+    	CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_FINAL_PAGOS_BASES_5_MAC38P_RG: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');	
+    	
+    	--SELECT 'TEMP_FINAL_PAGOS_BASES_5_MAC38P_RG',* FROM :TEMP_FINAL_PAGOS_BASES_5_MAC38P_RG;
+    	
+    	--LIQUIDACIÓN COMPLEMENTARIA
+		IF v_num_post > 1 AND i_tipo_reparto = 'CIERRE' THEN
+		
+			TEMP_PAGOS_DIRECTOS_5_MAC38P_RG_LC = SELECT SUM(IMPORTE) SUMA_PAGOS,PERIODSEQ,POS_PRIN,EARNINGGROUPID,EARNINGCODEID,DEPOSITO 
+				FROM :TEMP_FINAL_PAGOS_BASES_5_MAC38P_RG
+				WHERE TIPO_LIQ IN ('CIERRE','LIQ')
+				GROUP BY PERIODSEQ,POS_PRIN,EARNINGGROUPID,EARNINGCODEID,DEPOSITO;
+		
+			INSERT INTO EXT.FINAL_REPEXT_FILE_TEST("TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+		        ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+		        ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+		        ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ")
+		    SELECT "TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+		        ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE"*(-1),"TIPO_AGENTE","TIPO_DOCUMENTO",TF."EARNINGGROUPID"
+		        ,TF."EARNINGCODEID",TF.SUMA_IMPORTE,"DEPOSITSEQ",TF."DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+		        ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF",TF."POS_PRIN","POSITIONNAME","PERIODO",TF."PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ"
+		    FROM :TEMP_FINAL_PAGOS_BASES_5_MAC38P_RG TF 
+		    	INNER JOIN :TEMP_PAGOS_DIRECTOS_5_MAC38P_RG_LC TLC ON TF.PERIODSEQ = TLC.PERIODSEQ AND TF.POS_PRIN = TLC.POS_PRIN 
+		    	AND TF.EARNINGGROUPID = TLC.EARNINGGROUPID AND TF.EARNINGCODEID = TLC. EARNINGCODEID AND TF.DEPOSITO = TLC.DEPOSITO
+		    	AND 1 = (CASE WHEN SUMA_PAGOS <> SUMA_IMPORTE THEN 1 END); 
+		 END IF;
+    	-- FIN LIQUIDACIÓN COMPLEMENTARIA
+    	
+    	UPDATE F
+    	SET ESTADO_REPARTO = CASE 
+    		WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 2
+			WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 3
+			ELSE 4 
+		END
+		FROM EXT.FINAL_REPEXT_PAGOS_FILE_TEST F
+		INNER JOIN :TEMP_FINAL_PAGOS_BASES_5_MAC38P_RG T ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+		AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID;
+		
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_PAGOS_FILE_TEST ESTADOS ACTUALIZADOS: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+		
+		UPDATE F
+            SET ESTADO_REPARTO = CASE 
+    				WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 2
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 3
+					ELSE 4 
+				END --REPARTO CORRECTO
+			FROM :TEMP_REPEXT_PAGOS_REPARTO_FILE F
+			INNER JOIN :TEMP_FINAL_PAGOS_BASES_5_MAC38P_RG T ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+			AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+			WHERE 1 = (CASE 
+    				WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 1
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+					ELSE 0 
+				END)
+	--		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID
+			;
+        CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_REPEXT_PAGOS_REPARTO_FILE ESTADOS ACTUALIZADOS: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');   
+                                   
+		
+		INSERT INTO EXT.FINAL_REPEXT_FILE_TEST("TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+            ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+            ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+            ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ")
+        SELECT "TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+            ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+            ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+            ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ"
+        FROM :TEMP_FINAL_PAGOS_BASES_5_MAC38P_RG
+        WHERE 1 = (
+        	CASE 
+        		WHEN (IMPORTE_PAGO - IFNULL(SUMA_IMPORTE,0)) = 0 THEN 1
+    			WHEN (IMPORTE_PAGO - IFNULL(SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+    		ELSE 0 
+    		END);
+        ---------------------------------------------------------------------------------------------------
+ 		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_FILE_TEST INSERTADOS: ' ||::ROWCOUNT, v_log_count, v_idproceso, 'info');	
+		---------------------------------------------------------------------------------------------------
+		
+		TEMP_FINAL_PAGOS_BASES_5_MAC38P_RG_DIF =
+			SELECT T.PERIODSEQ,T.POS_PRIN,T.TIPO_DOCUMENTO,T.DEPOSITSEQ,T.EARNINGCODEID,T.EARNINGGROUPID,T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0) AS DIF,
+					T.ORDERID,T.LINENUMBER,T.SUBLINENUMBER,T.EVENTTYPEID, T.COMPENSATIONDATE,
+				ROW_NUMBER() OVER(
+                      		PARTITION BY T.PERIODSEQ,T.POS_PRIN,T.TIPO_DOCUMENTO,T.DEPOSITSEQ,T.EARNINGCODEID,T.EARNINGGROUPID
+                      		--ORDER BY T.ORDERID
+                      ) AS RN_TRX
+			FROM :TEMP_FINAL_PAGOS_BASES_5_MAC38P_RG T
+			WHERE 1 = (CASE 
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 0
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+					ELSE 0 
+				END)
+		;
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_FINAL_PAGOS_BASES_5_MAC38P_RG_DIF: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+		UPDATE F
+    	SET F.IMPORTE = F.IMPORTE + T.DIF
+    	FROM EXT.FINAL_REPEXT_FILE_TEST F
+    	INNER JOIN :TEMP_FINAL_PAGOS_BASES_5_MAC38P_RG_DIF T  ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+		AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID
+		AND F.ORDERID = T.ORDERID AND F.LINENUMBER = T.LINENUMBER AND F.SUBLINENUMBER = T.SUBLINENUMBER AND F.EVENTTYPEID = T.EVENTTYPEID AND F.COMPENSATIONDATE = T.COMPENSATIONDATE
+		AND T.RN_TRX = 1
+		;
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_FILE_TEST IMPORTE_DIF: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');		
+       
+        
+        
+        ---------------------------------------------------------------------------------------------------
+		-- 5_03_RT
+		---------------------------------------------------------------------------------------------------
+		--BASES
+		IF i_tipo_reparto = 'CIERRE' THEN
+			TEMP_BASES_5_03_RT = SELECT * 
+	    		FROM EXT.FINAL_BASES_REPARTO_POLIZA_FILE B
+	    		WHERE PERIODSEQ = i_periodSeq
+	    		--RAMO EARNINGGROUPID = '03-RT'
+	    		--AND PRODUCTID LIKE '032%'
+	    		;
+	    	CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_BASES_5_03_RT: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+	    ELSE
+	    	TEMP_BASES_5_03_RT = SELECT * 
+    		FROM EXT.FINAL_BASES_REPARTO_POLIZA_FILE_NUEVA_BASE_REPARTO B
+    		WHERE PERIODSEQ = v_periodSeqAnterior
+    		--RAMO EARNINGGROUPID = '03-RT'
+    		--AND PRODUCTID LIKE '032%'
+    		;
+    		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_BASES_5_03_RT (BALANCE): ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+    	END IF;
+		
+
+		     --BASES_TOTAL_IMPORTE
+		BASES_TOTAL_IMPORTE_5_03_RT = 
+			SELECT POSITIONSEQ, SUM(LOC_INSP) AS SUMA_IMPORTE
+			FROM :TEMP_BASES_5_03_RT
+			WHERE LOC_INSP <> 0
+			GROUP BY POSITIONSEQ;				
+			
+		--FINAL
+    	TEMP_FINAL_PAGOS_BASES_5_03_RT = SELECT P.PARTICIPANTSEQ,
+                                P.POSITIONSEQ,
+                                P.PERIODSEQ,
+                                :v_periodName AS PERIODO,
+                                P.POS_CALLIDUS POSITIONNAME,
+                                P.POS_PRIN,
+                                P.NIF,
+                                P.MANAGER_POS_PRIN,
+                                ORDERID,
+                                LINENUMBER,
+                                SUBLINENUMBER,
+                                EVENTTYPEID,
+                                PRODUCTID,
+                                CODIGO_POLIZA,
+                                COMPENSATIONDATE,
+                                ESTADO,
+                                P.PROGRAMA,
+                                P.TIPO_PAGO,
+                                P.DEPOSITO,
+                                P.DEPOSITSEQ,
+                                P.IMPORTE IMPORTE_PAGO,
+                                P.EARNINGCODEID,
+                                P.EARNINGGROUPID,
+                                P.TIPO_DOCUMENTO,
+                                P.TIPO_AGENTE,
+                                B.LOC_INSP AS IMPORTE,
+                                SUMA_IMPORTE AS SUMA_IMPORTE,
+                                NULL AS TIPO_REPARTO,
+                                0 AS NUM_TRAMO,
+                                NULL AS REPARTO_TIPO_BASE,
+                                NULL AS REPARTO_PORCENTAJE,
+                                POLIZA_FISICA,
+                                POLIZA_CORREGIDA,
+                                PRIMA_CORREGIDA,
+                                PRIMA_NETA,
+                                PRIMA_NETA_ANUAL,
+                                PRIMA_COMIS_S4 PRIMA_COMIS,
+                                NULL AS COEF_TIPO_BASE,
+                                NULL AS COEF_CORRECTOR,
+                                COD_AGENTE,
+                                P.TIPO_LIQ
+    					FROM :TEMP_PAGOS_DIRECTOS_5_03_RT P
+						INNER JOIN :BASES_TOTAL_IMPORTE_5_03_RT BT ON BT.POSITIONSEQ = P.POSITIONSEQ
+    					INNER JOIN :TEMP_BASES_5_03_RT B ON P.POSITIONSEQ = B.POSITIONSEQ
+    					--POSITION
+    					WHERE (B.POS_PRIN = P.POS_PRIN OR B.MANAGER_POS_PRIN = P.POS_PRIN)
+    					--TIPO AGENTE
+                        AND P.TIPO_AGENTE != '82'
+                        --RAMO
+    					--PERMANENCIA
+    					--TIPO CONCEPTO
+    					AND B.LOC_INSP <> 0
+    					-- AND (ORDERID,LINENUMBER,SUBLINENUMBER,EVENTTYPEID) NOT IN ( 
+         --                           SELECT X.ORDERID,X.LINENUMBER,X.SUBLINENUMBER,X.EVENTTYPEID FROM EXT.FINAL_REPEXT_FILE_TEST X 
+         --                           WHERE X.POS_PRIN = P.POS_PRIN
+         --                               AND X.PERIODSEQ = P.PERIODSEQ
+         --                               AND X.EARNINGCODEID = P.EARNINGCODEID
+         --                               AND X.EARNINGGROUPID = P.EARNINGGROUPID
+         --                               AND X.TIPO_DOCUMENTO = P.TIPO_DOCUMENTO )
+    					
+
+ 						AND NOT EXISTS (
+							SELECT 1
+							FROM EXT.FINAL_REPEXT_FILE_TEST X 
+								WHERE X.POS_PRIN       = P.POS_PRIN
+									AND X.PERIODSEQ      = P.PERIODSEQ
+									AND X.EARNINGCODEID  = P.EARNINGCODEID
+									AND X.EARNINGGROUPID = P.EARNINGGROUPID
+									AND X.TIPO_DOCUMENTO = P.TIPO_DOCUMENTO
+									AND X.ORDERID        = B.ORDERID
+									AND X.LINENUMBER     = B.LINENUMBER
+									AND X.SUBLINENUMBER  = B.SUBLINENUMBER
+									AND X.EVENTTYPEID    = B.EVENTTYPEID
+							)
+    					
+    					;
+    	CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_FINAL_PAGOS_BASES_5_03_RT: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');	
+    	
+   
+    	
+    	--LIQUIDACIÓN COMPLEMENTARIA
+		IF v_num_post > 1 AND i_tipo_reparto = 'CIERRE' THEN
+		
+			TEMP_PAGOS_DIRECTOS_5_03_RT_LC = SELECT SUM(IMPORTE) SUMA_PAGOS,PERIODSEQ,POS_PRIN,EARNINGGROUPID,EARNINGCODEID,DEPOSITO 
+				FROM :TEMP_FINAL_PAGOS_BASES_5_03_RT
+				WHERE TIPO_LIQ IN ('CIERRE','LIQ')
+				GROUP BY PERIODSEQ,POS_PRIN,EARNINGGROUPID,EARNINGCODEID,DEPOSITO;
+		
+			INSERT INTO EXT.FINAL_REPEXT_FILE_TEST("TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+		        ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+		        ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+		        ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ")
+		    SELECT "TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+		        ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE"*(-1),"TIPO_AGENTE","TIPO_DOCUMENTO",TF."EARNINGGROUPID"
+		        ,TF."EARNINGCODEID",TF.SUMA_IMPORTE,"DEPOSITSEQ",TF."DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+		        ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF",TF."POS_PRIN","POSITIONNAME","PERIODO",TF."PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ"
+		    FROM :TEMP_FINAL_PAGOS_BASES_5_03_RT TF 
+		    	INNER JOIN :TEMP_PAGOS_DIRECTOS_5_03_RT_LC TLC ON TF.PERIODSEQ = TLC.PERIODSEQ AND TF.POS_PRIN = TLC.POS_PRIN 
+		    	AND TF.EARNINGGROUPID = TLC.EARNINGGROUPID AND TF.EARNINGCODEID = TLC. EARNINGCODEID AND TF.DEPOSITO = TLC.DEPOSITO
+		    	AND 1 = (CASE WHEN SUMA_PAGOS <> SUMA_IMPORTE THEN 1 END); 
+		 END IF;
+    	-- FIN LIQUIDACIÓN COMPLEMENTARIA
+    	
+    	UPDATE F
+    	SET ESTADO_REPARTO = CASE 
+    		WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 2
+			WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 3
+			ELSE 4 
+		END
+		FROM EXT.FINAL_REPEXT_PAGOS_FILE_TEST F
+		INNER JOIN :TEMP_FINAL_PAGOS_BASES_5_03_RT T ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+		AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID;
+		
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_PAGOS_FILE_TEST ESTADOS ACTUALIZADOS: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+		
+		UPDATE F
+            SET ESTADO_REPARTO = CASE 
+    				WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 2
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 3
+					ELSE 4 
+				END --REPARTO CORRECTO
+			FROM :TEMP_REPEXT_PAGOS_REPARTO_FILE F
+			INNER JOIN :TEMP_FINAL_PAGOS_BASES_5_03_RT T ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+			AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+			WHERE 1 = (CASE 
+    				WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 1
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+					ELSE 0 
+				END)
+	--		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID
+			;
+        CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_REPEXT_PAGOS_REPARTO_FILE ESTADOS ACTUALIZADOS: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');   
+                                   
+		
+		INSERT INTO EXT.FINAL_REPEXT_FILE_TEST("TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+            ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+            ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+            ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ")
+        SELECT "TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+            ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+            ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+            ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ"
+        FROM :TEMP_FINAL_PAGOS_BASES_5_03_RT
+        WHERE 1 = (
+        	CASE 
+        		WHEN (IMPORTE_PAGO - IFNULL(SUMA_IMPORTE,0)) = 0 THEN 1
+    			WHEN (IMPORTE_PAGO - IFNULL(SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+    		ELSE 0 
+    		END);
+		---------------------------------------------------------------------------------------------------
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_FILE_TEST INSERTADOS: ' ||::ROWCOUNT, v_log_count, v_idproceso, 'info');	
+		---------------------------------------------------------------------------------------------------
+		
+		TEMP_FINAL_PAGOS_BASES_5_03_RT_DIF =
+			SELECT T.PERIODSEQ,T.POS_PRIN,T.TIPO_DOCUMENTO,T.DEPOSITSEQ,T.EARNINGCODEID,T.EARNINGGROUPID,T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0) AS DIF,
+					T.ORDERID,T.LINENUMBER,T.SUBLINENUMBER,T.EVENTTYPEID, T.COMPENSATIONDATE,
+				ROW_NUMBER() OVER(
+                      		PARTITION BY T.PERIODSEQ,T.POS_PRIN,T.TIPO_DOCUMENTO,T.DEPOSITSEQ,T.EARNINGCODEID,T.EARNINGGROUPID
+                      		--ORDER BY T.ORDERID
+                      ) AS RN_TRX
+			FROM :TEMP_FINAL_PAGOS_BASES_5_03_RT T
+			WHERE 1 = (CASE 
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 0
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+					ELSE 0 
+				END)
+		;
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_FINAL_PAGOS_BASES_5_03_RT_DIF: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+		UPDATE F
+    	SET F.IMPORTE = F.IMPORTE + T.DIF
+    	FROM EXT.FINAL_REPEXT_FILE_TEST F
+    	INNER JOIN :TEMP_FINAL_PAGOS_BASES_5_03_RT_DIF T  ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+		AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID
+		AND F.ORDERID = T.ORDERID AND F.LINENUMBER = T.LINENUMBER AND F.SUBLINENUMBER = T.SUBLINENUMBER AND F.EVENTTYPEID = T.EVENTTYPEID AND F.COMPENSATIONDATE = T.COMPENSATIONDATE
+		AND T.RN_TRX = 1
+		;
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_FILE_TEST IMPORTE_DIF: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');		
+		
+		
+		---------------------------------------------------------------------------------------------------
+		-- 5_03_RG
+		---------------------------------------------------------------------------------------------------
+		--BASES
+		IF i_tipo_reparto = 'CIERRE' THEN
+			TEMP_BASES_5_03_RG = SELECT * 
+	    		FROM EXT.FINAL_BASES_REPARTO_POLIZA_FILE B
+	    		WHERE PERIODSEQ = i_periodSeq
+	    		--RAMO EARNINGGROUPID = '03-RT'
+	    		--AND PRODUCTID LIKE '032%'
+	    		;
+	    	CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_BASES_5_03_RG: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+	    ELSE
+	    	TEMP_BASES_5_03_RG = SELECT * 
+    		FROM EXT.FINAL_BASES_REPARTO_POLIZA_FILE_NUEVA_BASE_REPARTO B
+    		WHERE PERIODSEQ = v_periodSeqAnterior
+    		--RAMO EARNINGGROUPID = '03-RT'
+    		--AND PRODUCTID LIKE '032%'
+    		;
+    		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_BASES_5_03_RG (BALANCE): ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+    	END IF;
+
+		     --BASES_TOTAL_IMPORTE
+		BASES_TOTAL_IMPORTE_5_03_RG = 
+			SELECT POSITIONSEQ, SUM(LOC_INSP) AS SUMA_IMPORTE
+			FROM :TEMP_BASES_5_03_RG
+			WHERE LOC_INSP <> 0
+			GROUP BY POSITIONSEQ;				
+			
+		--FINAL
+    	TEMP_FINAL_PAGOS_BASES_5_03_RG = SELECT P.PARTICIPANTSEQ,
+                                P.POSITIONSEQ,
+                                P.PERIODSEQ,
+                                :v_periodName AS PERIODO,
+                                P.POS_CALLIDUS POSITIONNAME,
+                                P.POS_PRIN,
+                                P.NIF,
+                                P.MANAGER_POS_PRIN,
+                                ORDERID,
+                                LINENUMBER,
+                                SUBLINENUMBER,
+                                EVENTTYPEID,
+                                PRODUCTID,
+                                CODIGO_POLIZA,
+                                COMPENSATIONDATE,
+                                ESTADO,
+                                P.PROGRAMA,
+                                P.TIPO_PAGO,
+                                P.DEPOSITO,
+                                P.DEPOSITSEQ,
+                                P.IMPORTE IMPORTE_PAGO,
+                                P.EARNINGCODEID,
+                                P.EARNINGGROUPID,
+                                P.TIPO_DOCUMENTO,
+                                P.TIPO_AGENTE,
+                                B.LOC_INSP AS IMPORTE,
+                                -- SUM(B.LOC_INSP) OVER(PARTITION BY P.POSITIONSEQ) AS SUMA_IMPORTE,
+                                BT.SUMA_IMPORTE AS SUMA_IMPORTE,
+                                NULL AS TIPO_REPARTO,
+                                0 AS NUM_TRAMO,
+                                NULL AS REPARTO_TIPO_BASE,
+                                NULL AS REPARTO_PORCENTAJE,
+                                POLIZA_FISICA,
+                                POLIZA_CORREGIDA,
+                                PRIMA_CORREGIDA,
+                                PRIMA_NETA,
+                                PRIMA_NETA_ANUAL,
+                                PRIMA_COMIS_S4 PRIMA_COMIS,
+                                NULL AS COEF_TIPO_BASE,
+                                NULL AS COEF_CORRECTOR,
+                                COD_AGENTE,
+                                P.TIPO_LIQ
+    					FROM :TEMP_PAGOS_DIRECTOS_5_03_RG P
+						INNER JOIN :BASES_TOTAL_IMPORTE_5_03_RG BT ON BT.POSITIONSEQ = P.POSITIONSEQ
+    					INNER JOIN :TEMP_BASES_5_03_RG B ON P.POSITIONSEQ = B.POSITIONSEQ
+    					WHERE (B.POS_PRIN = P.POS_PRIN OR B.MANAGER_POS_PRIN = P.POS_PRIN)
+    					--TIPO AGENTE
+                        AND P.TIPO_AGENTE != '82'
+                        --RAMO
+    					-- AND B.PRODUCTID LIKE '%'||RIGHT(P.EARNINGCODEID,5)||'%'
+    					--PERMANENCIA
+    					-- AND B.EVENTTYPEID = 'Pago Comercial' AND B.CODIGO_POLIZA = P.EARNINGGROUPID AND ESTADO = SUBSTRING(P.EARNINGCODEID,1,3)
+    					--TIPO CONCEPTO
+    					AND B.LOC_INSP <> 0
+    					-- AND (ORDERID,LINENUMBER,SUBLINENUMBER,EVENTTYPEID) NOT IN ( 
+         --                           SELECT X.ORDERID,X.LINENUMBER,X.SUBLINENUMBER,X.EVENTTYPEID FROM EXT.FINAL_REPEXT_FILE_TEST X 
+         --                           WHERE X.POS_PRIN = P.POS_PRIN
+         --                               AND X.PERIODSEQ = P.PERIODSEQ
+         --                               AND X.EARNINGCODEID = P.EARNINGCODEID
+         --                               AND X.EARNINGGROUPID = P.EARNINGGROUPID
+         --                               AND X.TIPO_DOCUMENTO = P.TIPO_DOCUMENTO )
+    					
+
+ 						AND NOT EXISTS (
+							SELECT 1
+							FROM EXT.FINAL_REPEXT_FILE_TEST X 
+								WHERE X.POS_PRIN       = P.POS_PRIN
+									AND X.PERIODSEQ      = P.PERIODSEQ
+									AND X.EARNINGCODEID  = P.EARNINGCODEID
+									AND X.EARNINGGROUPID = P.EARNINGGROUPID
+									AND X.TIPO_DOCUMENTO = P.TIPO_DOCUMENTO
+									AND X.ORDERID        = B.ORDERID
+									AND X.LINENUMBER     = B.LINENUMBER
+									AND X.SUBLINENUMBER  = B.SUBLINENUMBER
+									AND X.EVENTTYPEID    = B.EVENTTYPEID
+							)
+    					
+    					;
+    	CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_FINAL_PAGOS_BASES_5_03_RG: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');	
+    	
+    	--SELECT 'TEMP_FINAL_PAGOS_BASES_5_03_RG',* FROM :TEMP_FINAL_PAGOS_BASES_5_03_RG;
+    	
+    	--LIQUIDACIÓN COMPLEMENTARIA
+		IF v_num_post > 1 AND i_tipo_reparto = 'CIERRE' THEN
+		
+			TEMP_PAGOS_DIRECTOS_5_03_RG_LC = SELECT SUM(IMPORTE) SUMA_PAGOS,PERIODSEQ,POS_PRIN,EARNINGGROUPID,EARNINGCODEID,DEPOSITO 
+				FROM :TEMP_FINAL_PAGOS_BASES_5_03_RG
+				WHERE TIPO_LIQ IN ('CIERRE','LIQ')
+				GROUP BY PERIODSEQ,POS_PRIN,EARNINGGROUPID,EARNINGCODEID,DEPOSITO;
+		
+			INSERT INTO EXT.FINAL_REPEXT_FILE_TEST("TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+		        ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+		        ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+		        ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ")
+		    SELECT "TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+		        ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE"*(-1),"TIPO_AGENTE","TIPO_DOCUMENTO",TF."EARNINGGROUPID"
+		        ,TF."EARNINGCODEID",TF.SUMA_IMPORTE,"DEPOSITSEQ",TF."DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+		        ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF",TF."POS_PRIN","POSITIONNAME","PERIODO",TF."PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ"
+		    FROM :TEMP_FINAL_PAGOS_BASES_5_03_RG TF 
+		    	INNER JOIN :TEMP_PAGOS_DIRECTOS_5_03_RG_LC TLC ON TF.PERIODSEQ = TLC.PERIODSEQ AND TF.POS_PRIN = TLC.POS_PRIN 
+		    	AND TF.EARNINGGROUPID = TLC.EARNINGGROUPID AND TF.EARNINGCODEID = TLC. EARNINGCODEID AND TF.DEPOSITO = TLC.DEPOSITO
+		    	AND 1 = (CASE WHEN SUMA_PAGOS <> SUMA_IMPORTE THEN 1 END); 
+		 END IF;
+    	-- FIN LIQUIDACIÓN COMPLEMENTARIA
+    	
+    	
+    	UPDATE F
+    	SET ESTADO_REPARTO = CASE 
+    		WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 2
+			WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 3
+			ELSE 4 
+		END
+		FROM EXT.FINAL_REPEXT_PAGOS_FILE_TEST F
+		INNER JOIN :TEMP_FINAL_PAGOS_BASES_5_03_RG T ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+		AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID;
+		
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_PAGOS_FILE_TEST ESTADOS ACTUALIZADOS: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+		
+		UPDATE F
+            SET ESTADO_REPARTO = CASE 
+    				WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 2
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 3
+					ELSE 4 
+				END --REPARTO CORRECTO
+			FROM :TEMP_REPEXT_PAGOS_REPARTO_FILE F
+			INNER JOIN :TEMP_FINAL_PAGOS_BASES_5_03_RG T ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+			AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+			WHERE 1 = (CASE 
+    				WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 1
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+					ELSE 0 
+				END)
+	--		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID
+			;
+        CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_REPEXT_PAGOS_REPARTO_FILE ESTADOS ACTUALIZADOS: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');   
+                                   
+		
+		INSERT INTO EXT.FINAL_REPEXT_FILE_TEST("TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+            ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+            ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+            ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ")
+        SELECT "TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+            ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+            ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+            ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ"
+        FROM :TEMP_FINAL_PAGOS_BASES_5_03_RG
+        WHERE 1 = (
+        	CASE 
+        		WHEN (IMPORTE_PAGO - IFNULL(SUMA_IMPORTE,0)) = 0 THEN 1
+    			WHEN (IMPORTE_PAGO - IFNULL(SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+    		ELSE 0 
+    		END);
+        
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_FILE_TEST INSERTADOS: ' ||::ROWCOUNT, v_log_count, v_idproceso, 'info');	
+		---------------------------------------------------------------------------------------------------
+		
+		TEMP_FINAL_PAGOS_BASES_5_03_RG_DIF =
+			SELECT T.PERIODSEQ,T.POS_PRIN,T.TIPO_DOCUMENTO,T.DEPOSITSEQ,T.EARNINGCODEID,T.EARNINGGROUPID,T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0) AS DIF,
+					T.ORDERID,T.LINENUMBER,T.SUBLINENUMBER,T.EVENTTYPEID, T.COMPENSATIONDATE,
+				ROW_NUMBER() OVER(
+                      		PARTITION BY T.PERIODSEQ,T.POS_PRIN,T.TIPO_DOCUMENTO,T.DEPOSITSEQ,T.EARNINGCODEID,T.EARNINGGROUPID
+                      		--ORDER BY T.ORDERID
+                      ) AS RN_TRX
+			FROM :TEMP_FINAL_PAGOS_BASES_5_03_RG T
+			WHERE 1 = (CASE 
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 0
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+					ELSE 0 
+				END)
+		;
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_FINAL_PAGOS_BASES_5_03_RG_DIF: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+		UPDATE F
+    	SET F.IMPORTE = F.IMPORTE + T.DIF
+    	FROM EXT.FINAL_REPEXT_FILE_TEST F
+    	INNER JOIN :TEMP_FINAL_PAGOS_BASES_5_03_RG_DIF T  ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+		AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID
+		AND F.ORDERID = T.ORDERID AND F.LINENUMBER = T.LINENUMBER AND F.SUBLINENUMBER = T.SUBLINENUMBER AND F.EVENTTYPEID = T.EVENTTYPEID AND F.COMPENSATIONDATE = T.COMPENSATIONDATE
+		AND T.RN_TRX = 1
+		;
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_FILE_TEST IMPORTE_DIF: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');		
+ 
+ 
+        ---------------------------------------------------------------------------------------------------
+		-- 5_RT
+		---------------------------------------------------------------------------------------------------
+		--BASES
+		IF i_tipo_reparto = 'CIERRE' THEN
+			TEMP_BASES_5_RT = SELECT * 
+	    		FROM EXT.FINAL_BASES_REPARTO_POLIZA_FILE B
+	    		WHERE PERIODSEQ = i_periodSeq
+	    		--RAMO EARNINGGROUPID = '03-RT'
+	    		--AND PRODUCTID LIKE '032%'
+	    		;
+	    	CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_BASES_5_RT: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+	    ELSE
+	    	TEMP_BASES_5_RT = SELECT * 
+    		FROM EXT.FINAL_BASES_REPARTO_POLIZA_FILE_NUEVA_BASE_REPARTO B
+    		WHERE PERIODSEQ = v_periodSeqAnterior
+    		--RAMO EARNINGGROUPID = '03-RT'
+    		--AND PRODUCTID LIKE '032%'
+    		;
+    	CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_BASES_5_RT (BALANCE): ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+			
+		END IF;
+			
+		     --BASES_TOTAL_IMPORTE
+		BASES_TOTAL_IMPORTE_5_RT = 
+			SELECT POSITIONSEQ, SUM(LOC_INSP) AS SUMA_IMPORTE
+			FROM :TEMP_BASES_5_RT
+			WHERE LOC_INSP <> 0
+			GROUP BY POSITIONSEQ;	
+			
+		--FINAL
+    	TEMP_FINAL_PAGOS_BASES_5_RT = SELECT P.PARTICIPANTSEQ,
+                                P.POSITIONSEQ,
+                                P.PERIODSEQ,
+                                :v_periodName AS PERIODO,
+                                P.POS_CALLIDUS POSITIONNAME,
+                                P.POS_PRIN,
+                                P.NIF,
+                                P.MANAGER_POS_PRIN,
+                                ORDERID,
+                                LINENUMBER,
+                                SUBLINENUMBER,
+                                EVENTTYPEID,
+                                PRODUCTID,
+                                CODIGO_POLIZA,
+                                COMPENSATIONDATE,
+                                ESTADO,
+                                P.PROGRAMA,
+                                P.TIPO_PAGO,
+                                P.DEPOSITO,
+                                P.DEPOSITSEQ,
+                                P.IMPORTE IMPORTE_PAGO,
+                                P.EARNINGCODEID,
+                                P.EARNINGGROUPID,
+                                P.TIPO_DOCUMENTO,
+                                P.TIPO_AGENTE,
+                                B.LOC_INSP AS IMPORTE,
+                                SUMA_IMPORTE AS SUMA_IMPORTE,
+                                NULL AS TIPO_REPARTO,
+                                0 AS NUM_TRAMO,
+                                NULL AS REPARTO_TIPO_BASE,
+                                NULL AS REPARTO_PORCENTAJE,
+                                POLIZA_FISICA,
+                                POLIZA_CORREGIDA,
+                                PRIMA_CORREGIDA,
+                                PRIMA_NETA,
+                                PRIMA_NETA_ANUAL,
+                                PRIMA_COMIS_S4 PRIMA_COMIS,
+                                NULL AS COEF_TIPO_BASE,
+                                NULL AS COEF_CORRECTOR,
+                                COD_AGENTE,
+                                P.TIPO_LIQ
+    					FROM :TEMP_PAGOS_DIRECTOS_5_RT P
+						INNER JOIN :BASES_TOTAL_IMPORTE_5_RT BT ON BT.POSITIONSEQ = P.POSITIONSEQ
+    					INNER JOIN :TEMP_BASES_5_RT B ON P.POSITIONSEQ = B.POSITIONSEQ
+    					--POSITION
+    					WHERE ((B.POS_PRIN = P.POS_PRIN AND (IFNULL(B.CAMBIO_AG_INSP,'0') = '0')) OR B.MANAGER_POS_PRIN = P.POS_PRIN )
+    					--TIPO AGENTE
+                        AND P.TIPO_AGENTE != '82'
+                        --RAMO
+    					--PERMANENCIA
+    					--TIPO CONCEPTO
+    					AND B.LOC_INSP <> 0
+    					-- AND (ORDERID,LINENUMBER,SUBLINENUMBER,EVENTTYPEID) NOT IN ( 
+         --                           SELECT X.ORDERID,X.LINENUMBER,X.SUBLINENUMBER,X.EVENTTYPEID FROM EXT.FINAL_REPEXT_FILE_TEST X 
+         --                           WHERE X.POS_PRIN = P.POS_PRIN
+         --                               AND X.PERIODSEQ = P.PERIODSEQ
+         --                               AND X.EARNINGCODEID = P.EARNINGCODEID
+         --                               AND X.EARNINGGROUPID = P.EARNINGGROUPID
+         --                               AND X.TIPO_DOCUMENTO = P.TIPO_DOCUMENTO )
+    					
+
+ 						AND NOT EXISTS (
+							SELECT 1
+							FROM EXT.FINAL_REPEXT_FILE_TEST X 
+								WHERE X.POS_PRIN       = P.POS_PRIN
+									AND X.PERIODSEQ      = P.PERIODSEQ
+									AND X.EARNINGCODEID  = P.EARNINGCODEID
+									AND X.EARNINGGROUPID = P.EARNINGGROUPID
+									AND X.TIPO_DOCUMENTO = P.TIPO_DOCUMENTO
+									AND X.ORDERID        = B.ORDERID
+									AND X.LINENUMBER     = B.LINENUMBER
+									AND X.SUBLINENUMBER  = B.SUBLINENUMBER
+									AND X.EVENTTYPEID    = B.EVENTTYPEID
+							)
+    					
+    					;
+    	CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_FINAL_PAGOS_BASES_5_RT: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');	
+    	
+    
+    	
+    	--LIQUIDACIÓN COMPLEMENTARIA
+		IF v_num_post > 1 AND i_tipo_reparto = 'CIERRE' THEN
+		
+			TEMP_PAGOS_DIRECTOS_5_RT_LC = SELECT SUM(IMPORTE) SUMA_PAGOS,PERIODSEQ,POS_PRIN,EARNINGGROUPID,EARNINGCODEID,DEPOSITO 
+				FROM :TEMP_FINAL_PAGOS_BASES_5_RT
+				WHERE TIPO_LIQ IN ('CIERRE','LIQ')
+				GROUP BY PERIODSEQ,POS_PRIN,EARNINGGROUPID,EARNINGCODEID,DEPOSITO;
+		
+			INSERT INTO EXT.FINAL_REPEXT_FILE_TEST("TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+		        ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+		        ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+		        ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ")
+		    SELECT "TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+		        ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE"*(-1),"TIPO_AGENTE","TIPO_DOCUMENTO",TF."EARNINGGROUPID"
+		        ,TF."EARNINGCODEID",TF.SUMA_IMPORTE,"DEPOSITSEQ",TF."DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+		        ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF",TF."POS_PRIN","POSITIONNAME","PERIODO",TF."PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ"
+		    FROM :TEMP_FINAL_PAGOS_BASES_5_RT TF 
+		    	INNER JOIN :TEMP_PAGOS_DIRECTOS_5_RT_LC TLC ON TF.PERIODSEQ = TLC.PERIODSEQ AND TF.POS_PRIN = TLC.POS_PRIN 
+		    	AND TF.EARNINGGROUPID = TLC.EARNINGGROUPID AND TF.EARNINGCODEID = TLC. EARNINGCODEID AND TF.DEPOSITO = TLC.DEPOSITO
+		    	AND 1 = (CASE WHEN SUMA_PAGOS <> SUMA_IMPORTE THEN 1 END); 
+		 END IF;
+    	-- FIN LIQUIDACIÓN COMPLEMENTARIA
+    	
+    	
+    	UPDATE F
+    	SET ESTADO_REPARTO = CASE 
+    		WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 2
+			WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 3
+			ELSE 4 
+		END
+		FROM EXT.FINAL_REPEXT_PAGOS_FILE_TEST F
+		INNER JOIN :TEMP_FINAL_PAGOS_BASES_5_RT T ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+		AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID;
+		
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_PAGOS_FILE_TEST ESTADOS ACTUALIZADOS: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+		
+		UPDATE F
+            SET ESTADO_REPARTO = CASE 
+    				WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 2
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 3
+					ELSE 4 
+				END --REPARTO CORRECTO
+			FROM :TEMP_REPEXT_PAGOS_REPARTO_FILE F
+			INNER JOIN :TEMP_FINAL_PAGOS_BASES_5_RT T ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+			AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+			WHERE 1 = (CASE 
+    				WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 1
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+					ELSE 0 
+				END)
+	--		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID
+			;
+        CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_REPEXT_PAGOS_REPARTO_FILE ESTADOS ACTUALIZADOS: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');   
+                                   
+		
+		INSERT INTO EXT.FINAL_REPEXT_FILE_TEST("TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+            ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+            ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+            ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ")
+        SELECT "TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+            ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+            ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+            ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ"
+        FROM :TEMP_FINAL_PAGOS_BASES_5_RT
+        WHERE 1 = (
+        	CASE 
+        		WHEN (IMPORTE_PAGO - IFNULL(SUMA_IMPORTE,0)) = 0 THEN 1
+    			WHEN (IMPORTE_PAGO - IFNULL(SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+    		ELSE 0 
+    		END);
+		---------------------------------------------------------------------------------------------------
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_FILE_TEST INSERTADOS: ' ||::ROWCOUNT, v_log_count, v_idproceso, 'info');	
+		---------------------------------------------------------------------------------------------------
+		
+		TEMP_FINAL_PAGOS_BASES_5_RT_DIF =
+			SELECT T.PERIODSEQ,T.POS_PRIN,T.TIPO_DOCUMENTO,T.DEPOSITSEQ,T.EARNINGCODEID,T.EARNINGGROUPID,T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0) AS DIF,
+					T.ORDERID,T.LINENUMBER,T.SUBLINENUMBER,T.EVENTTYPEID, T.COMPENSATIONDATE,
+				ROW_NUMBER() OVER(
+                      		PARTITION BY T.PERIODSEQ,T.POS_PRIN,T.TIPO_DOCUMENTO,T.DEPOSITSEQ,T.EARNINGCODEID,T.EARNINGGROUPID
+                      		--ORDER BY T.ORDERID
+                      ) AS RN_TRX
+			FROM :TEMP_FINAL_PAGOS_BASES_5_RT T
+			WHERE 1 = (CASE 
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 0
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+					ELSE 0 
+				END)
+		;
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_FINAL_PAGOS_BASES_5_RT_DIF: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+		UPDATE F
+    	SET F.IMPORTE = F.IMPORTE + T.DIF
+    	FROM EXT.FINAL_REPEXT_FILE_TEST F
+    	INNER JOIN :TEMP_FINAL_PAGOS_BASES_5_RT_DIF T  ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+		AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID
+		AND F.ORDERID = T.ORDERID AND F.LINENUMBER = T.LINENUMBER AND F.SUBLINENUMBER = T.SUBLINENUMBER AND F.EVENTTYPEID = T.EVENTTYPEID AND F.COMPENSATIONDATE = T.COMPENSATIONDATE
+		AND T.RN_TRX = 1
+		;
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_FILE_TEST IMPORTE_DIF: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');		
+	
+
+	
+		---------------------------------------------------------------------------------------------------
+		-- 5_RG
+		---------------------------------------------------------------------------------------------------
+		--BASES
+		IF i_tipo_reparto = 'CIERRE' THEN
+			TEMP_BASES_5_RG = SELECT * 
+	    		FROM EXT.FINAL_BASES_REPARTO_POLIZA_FILE B
+	    		WHERE PERIODSEQ = i_periodSeq
+	    		--RAMO EARNINGGROUPID = '03-RT'
+	    		--AND PRODUCTID LIKE '032%'
+	    		;
+	    	CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_BASES_5_RG: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+	    ELSE
+	    	TEMP_BASES_5_RG = SELECT * 
+    		FROM EXT.FINAL_BASES_REPARTO_POLIZA_FILE_NUEVA_BASE_REPARTO B
+    		WHERE PERIODSEQ = v_periodSeqAnterior
+    		--RAMO EARNINGGROUPID = '03-RT'
+    		--AND PRODUCTID LIKE '032%'
+    		;
+    	CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_BASES_5_RG (BALANCE): ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+    	END IF;
+			
+		     --BASES_TOTAL_IMPORTE
+		BASES_TOTAL_IMPORTE_5_RG = 
+			SELECT POSITIONSEQ, SUM(LOC_INSP) AS SUMA_IMPORTE
+			FROM :TEMP_BASES_5_RG
+			WHERE LOC_INSP <> 0
+			GROUP BY POSITIONSEQ;			
+			
+		--FINAL
+    	TEMP_FINAL_PAGOS_BASES_5_RG = SELECT P.PARTICIPANTSEQ,
+                                P.POSITIONSEQ,
+                                P.PERIODSEQ,
+                                :v_periodName AS PERIODO,
+                                P.POS_CALLIDUS POSITIONNAME,
+                                P.POS_PRIN,
+                                P.NIF,
+                                P.MANAGER_POS_PRIN,
+                                ORDERID,
+                                LINENUMBER,
+                                SUBLINENUMBER,
+                                EVENTTYPEID,
+                                PRODUCTID,
+                                CODIGO_POLIZA,
+                                COMPENSATIONDATE,
+                                ESTADO,
+                                P.PROGRAMA,
+                                P.TIPO_PAGO,
+                                P.DEPOSITO,
+                                P.DEPOSITSEQ,
+                                P.IMPORTE IMPORTE_PAGO,
+                                P.EARNINGCODEID,
+                                P.EARNINGGROUPID,
+                                P.TIPO_DOCUMENTO,
+                                P.TIPO_AGENTE,
+                                B.LOC_INSP AS IMPORTE,
+                                BT.SUMA_IMPORTE AS SUMA_IMPORTE,
+                                NULL AS TIPO_REPARTO,
+                                0 AS NUM_TRAMO,
+                                NULL AS REPARTO_TIPO_BASE,
+                                NULL AS REPARTO_PORCENTAJE,
+                                POLIZA_FISICA,
+                                POLIZA_CORREGIDA,
+                                PRIMA_CORREGIDA,
+                                PRIMA_NETA,
+                                PRIMA_NETA_ANUAL,
+                                PRIMA_COMIS_S4 PRIMA_COMIS,
+                                NULL AS COEF_TIPO_BASE,
+                                NULL AS COEF_CORRECTOR,
+                                COD_AGENTE,
+                                P.TIPO_LIQ
+    					FROM :TEMP_PAGOS_DIRECTOS_5_RG P
+						INNER JOIN :BASES_TOTAL_IMPORTE_5_RG BT ON BT.POSITIONSEQ = P.POSITIONSEQ
+    					INNER JOIN :TEMP_BASES_5_RG B ON P.POSITIONSEQ = B.POSITIONSEQ
+    					WHERE ((B.POS_PRIN = P.POS_PRIN AND (IFNULL(B.CAMBIO_AG_INSP,'0') = '0')) OR B.MANAGER_POS_PRIN = P.POS_PRIN)
+    					--TIPO AGENTE
+                        AND P.TIPO_AGENTE != '82'
+                        --RAMO
+    					-- AND B.PRODUCTID LIKE '%'||RIGHT(P.EARNINGCODEID,5)||'%'
+    					--PERMANENCIA
+    					-- AND B.EVENTTYPEID = 'Pago Comercial' AND B.CODIGO_POLIZA = P.EARNINGGROUPID AND ESTADO = SUBSTRING(P.EARNINGCODEID,1,3)
+    					--TIPO CONCEPTO
+    					AND B.LOC_INSP <> 0
+    					-- AND (ORDERID,LINENUMBER,SUBLINENUMBER,EVENTTYPEID) NOT IN ( 
+         --                           SELECT X.ORDERID,X.LINENUMBER,X.SUBLINENUMBER,X.EVENTTYPEID FROM EXT.FINAL_REPEXT_FILE_TEST X 
+         --                           WHERE X.POS_PRIN = P.POS_PRIN
+         --                               AND X.PERIODSEQ = P.PERIODSEQ
+         --                               AND X.EARNINGCODEID = P.EARNINGCODEID
+         --                               AND X.EARNINGGROUPID = P.EARNINGGROUPID
+         --                               AND X.TIPO_DOCUMENTO = P.TIPO_DOCUMENTO )
+    					
+
+ 						AND NOT EXISTS (
+							SELECT 1
+							FROM EXT.FINAL_REPEXT_FILE_TEST X 
+								WHERE X.POS_PRIN       = P.POS_PRIN
+									AND X.PERIODSEQ      = P.PERIODSEQ
+									AND X.EARNINGCODEID  = P.EARNINGCODEID
+									AND X.EARNINGGROUPID = P.EARNINGGROUPID
+									AND X.TIPO_DOCUMENTO = P.TIPO_DOCUMENTO
+									AND X.ORDERID        = B.ORDERID
+									AND X.LINENUMBER     = B.LINENUMBER
+									AND X.SUBLINENUMBER  = B.SUBLINENUMBER
+									AND X.EVENTTYPEID    = B.EVENTTYPEID
+							)
+    					
+    					;
+    	CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_FINAL_PAGOS_BASES_5_RG: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');	
+    	
+    
+    	
+    	--LIQUIDACIÓN COMPLEMENTARIA
+		IF v_num_post > 1 AND i_tipo_reparto = 'CIERRE' THEN
+		
+			TEMP_PAGOS_DIRECTOS_5_RG_LC = SELECT SUM(IMPORTE) SUMA_PAGOS,PERIODSEQ,POS_PRIN,EARNINGGROUPID,EARNINGCODEID,DEPOSITO 
+				FROM :TEMP_FINAL_PAGOS_BASES_5_RG
+				WHERE TIPO_LIQ IN ('CIERRE','LIQ')
+				GROUP BY PERIODSEQ,POS_PRIN,EARNINGGROUPID,EARNINGCODEID,DEPOSITO;
+		
+			INSERT INTO EXT.FINAL_REPEXT_FILE_TEST("TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+		        ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+		        ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+		        ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ")
+		    SELECT "TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+		        ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE"*(-1),"TIPO_AGENTE","TIPO_DOCUMENTO",TF."EARNINGGROUPID"
+		        ,TF."EARNINGCODEID",TF.SUMA_IMPORTE,"DEPOSITSEQ",TF."DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+		        ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF",TF."POS_PRIN","POSITIONNAME","PERIODO",TF."PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ"
+		    FROM :TEMP_FINAL_PAGOS_BASES_5_RG TF 
+		    	INNER JOIN :TEMP_PAGOS_DIRECTOS_5_RG_LC TLC ON TF.PERIODSEQ = TLC.PERIODSEQ AND TF.POS_PRIN = TLC.POS_PRIN 
+		    	AND TF.EARNINGGROUPID = TLC.EARNINGGROUPID AND TF.EARNINGCODEID = TLC. EARNINGCODEID AND TF.DEPOSITO = TLC.DEPOSITO
+		    	AND 1 = (CASE WHEN SUMA_PAGOS <> SUMA_IMPORTE THEN 1 END); 
+		 END IF;
+    	-- FIN LIQUIDACIÓN COMPLEMENTARIA
+    	
+    	UPDATE F
+    	SET ESTADO_REPARTO = CASE 
+    		WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 2
+			WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 3
+			ELSE 4 
+		END
+		FROM EXT.FINAL_REPEXT_PAGOS_FILE_TEST F
+		INNER JOIN :TEMP_FINAL_PAGOS_BASES_5_RG T ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+		AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID;
+		
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_PAGOS_FILE_TEST ESTADOS ACTUALIZADOS ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+		
+		UPDATE F
+            SET ESTADO_REPARTO = CASE 
+    				WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 2
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 3
+					ELSE 4 
+				END --REPARTO CORRECTO
+			FROM :TEMP_REPEXT_PAGOS_REPARTO_FILE F
+			INNER JOIN :TEMP_FINAL_PAGOS_BASES_5_RG T ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+			AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+			WHERE 1 = (CASE 
+    				WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 1
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+					ELSE 0 
+				END)
+	--		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID
+			;
+        CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_REPEXT_PAGOS_REPARTO_FILE ESTADOS ACTUALIZADOS: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');   
+                                   
+		
+		INSERT INTO EXT.FINAL_REPEXT_FILE_TEST("TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+            ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+            ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+            ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ")
+        SELECT "TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+            ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+            ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+            ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ"
+        FROM :TEMP_FINAL_PAGOS_BASES_5_RG
+        WHERE 1 = (
+        	CASE 
+        		WHEN (IMPORTE_PAGO - IFNULL(SUMA_IMPORTE,0)) = 0 THEN 1
+    			WHEN (IMPORTE_PAGO - IFNULL(SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+    		ELSE 0 
+    		END);
+    ----------------------------------------------------------------------------------------------------------
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_FILE_TEST INSERTADOS: ' ||::ROWCOUNT, v_log_count, v_idproceso, 'info');	
+		---------------------------------------------------------------------------------------------------
+		
+		TEMP_FINAL_PAGOS_BASES_5_RG_DIF =
+			SELECT T.PERIODSEQ,T.POS_PRIN,T.TIPO_DOCUMENTO,T.DEPOSITSEQ,T.EARNINGCODEID,T.EARNINGGROUPID,T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0) AS DIF,
+					T.ORDERID,T.LINENUMBER,T.SUBLINENUMBER,T.EVENTTYPEID, T.COMPENSATIONDATE,
+				ROW_NUMBER() OVER(
+                      		PARTITION BY T.PERIODSEQ,T.POS_PRIN,T.TIPO_DOCUMENTO,T.DEPOSITSEQ,T.EARNINGCODEID,T.EARNINGGROUPID
+                      		--ORDER BY T.ORDERID
+                      ) AS RN_TRX
+			FROM :TEMP_FINAL_PAGOS_BASES_5_RG T
+			WHERE 1 = (CASE 
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 0
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+					ELSE 0 
+				END)
+		;
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_FINAL_PAGOS_BASES_5_RG_DIF: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+		UPDATE F
+    	SET F.IMPORTE = F.IMPORTE + T.DIF
+    	FROM EXT.FINAL_REPEXT_FILE_TEST F
+    	INNER JOIN :TEMP_FINAL_PAGOS_BASES_5_RG_DIF T  ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+		AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID
+		AND F.ORDERID = T.ORDERID AND F.LINENUMBER = T.LINENUMBER AND F.SUBLINENUMBER = T.SUBLINENUMBER AND F.EVENTTYPEID = T.EVENTTYPEID AND F.COMPENSATIONDATE = T.COMPENSATIONDATE
+		AND T.RN_TRX = 1
+		;
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_FILE_TEST IMPORTE_DIF: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');		
+
+
+
+-----------------------------------------------------------------------
+
+TEMP_PAGOS_DIRECTOS_X_RT = SELECT *
+    		FROM :TEMP_PAGOS_DIRECTOS
+    		WHERE SUBSTRING(EARNINGCODEID,4,1) = '-';
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_PAGOS_DIRECTOS_X_RT: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+		-- SELECT 'TEMP_PAGOS_DIRECTOS_X_RT',* FROM :TEMP_PAGOS_DIRECTOS_X_RT;
+		
+    -- PAGOS GROUPID: X-01_RT
+    TEMP_PAGOS_DIRECTOS_X_01_RT = SELECT *
+    		FROM :TEMP_PAGOS_DIRECTOS
+    		WHERE SUBSTRING(EARNINGCODEID,4,1) = '-'
+    		AND SUBSTRING(EARNINGGROUPID,7,5) = '01-RT';
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_PAGOS_DIRECTOS_X_01_RT: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+		-- SELECT 'TEMP_PAGOS_DIRECTOS_X_01_RT',* FROM :TEMP_PAGOS_DIRECTOS_X_01_RT;
+    
+    TEMP_PAGOS_DIRECTOS_X_01_RG = SELECT *
+    		FROM :TEMP_PAGOS_DIRECTOS
+    		WHERE SUBSTRING(EARNINGCODEID,4,1) = '-'
+    		AND SUBSTRING(EARNINGGROUPID,7,5) = '01-RG';
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_PAGOS_DIRECTOS_X_01_RG ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+		-- SELECT 'TEMP_PAGOS_DIRECTOS_X_01_RG',* FROM :TEMP_PAGOS_DIRECTOS_X_01_RG;
+    
+    -- PAGOS GROUPID: X-03_RT
+    TEMP_PAGOS_DIRECTOS_X_03_RT = SELECT *
+    		FROM :TEMP_PAGOS_DIRECTOS
+    		WHERE SUBSTRING(EARNINGCODEID,4,1) = '-'
+    		AND SUBSTRING(EARNINGGROUPID,7,5) = '03-RT';
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_PAGOS_DIRECTOS_X_03_RT: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+		-- SELECT 'TEMP_PAGOS_DIRECTOS_X_03_RT',* FROM :TEMP_PAGOS_DIRECTOS_X_03_RT;
+    
+    TEMP_PAGOS_DIRECTOS_X_03_RG = SELECT *
+    		FROM :TEMP_PAGOS_DIRECTOS
+    		WHERE SUBSTRING(EARNINGCODEID,4,1) = '-'
+    		AND SUBSTRING(EARNINGGROUPID,7,5) = '03-RG';
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_PAGOS_DIRECTOS_X_03_RG: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+		-- SELECT 'TEMP_PAGOS_DIRECTOS_X_03_RG',* FROM :TEMP_PAGOS_DIRECTOS_X_03_RG;
+    
+    
+		
+		---------------------------------------------------------------------------------------------------
+		-- GUION_82_MACB38P
+		---------------------------------------------------------------------------------------------------
+		
+		--BASES
+		IF i_tipo_reparto = 'CIERRE' THEN
+			TEMP_BASES_GUION_82_MACB38P = SELECT * 
+	    		FROM EXT.FINAL_BASES_REPARTO_POLIZA_FILE B
+	    		WHERE PERIODSEQ = i_periodSeq
+	    		--RAMO EARNINGGROUPID = '01-RT'
+	    		--AND PRODUCTID LIKE '032%'
+	    		ORDER BY POSITIONSEQ;
+	    	CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_BASES_GUION_82_MACB38P: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+	    ELSE
+	    	TEMP_BASES_GUION_82_MACB38P = SELECT * 
+	    		FROM EXT.FINAL_BASES_REPARTO_POLIZA_FILE_NUEVA_BASE_REPARTO B
+	    		WHERE PERIODSEQ = v_periodSeqAnterior
+	    		--RAMO EARNINGGROUPID = '01-RT'
+	    		--AND PRODUCTID LIKE '032%'
+	    		ORDER BY POSITIONSEQ;
+	    	CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_BASES_GUION_82_MACB38P (BALANCE):' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+	    END IF;
+			
+		-- --BASES_TOTAL_IMPORTE
+  --  	BASES_TOTAL_IMPORTE_GUION_82_MACB38P = 
+		-- 	SELECT POSITIONSEQ, SUM(IMPORTE_COMISION) AS SUMA_IMPORTE
+		-- 	FROM :TEMP_BASES_GUION_82_MACB38P
+		-- 	WHERE IMPORTE_COMISION <> 0
+		-- 	GROUP BY POSITIONSEQ;
+			
+			
+		--FINAL
+    	TEMP_FINAL_PAGOS_BASES_GUION_82_MACB38P = SELECT P.PARTICIPANTSEQ,
+                                P.POSITIONSEQ,
+                                P.PERIODSEQ,
+                                :v_periodName AS PERIODO,
+                                P.POS_CALLIDUS POSITIONNAME,
+                                P.POS_PRIN,
+                                P.NIF,
+                                P.MANAGER_POS_PRIN,
+                                ORDERID,
+                                LINENUMBER,
+                                SUBLINENUMBER,
+                                EVENTTYPEID,
+                                PRODUCTID,
+                                CODIGO_POLIZA,
+                                COMPENSATIONDATE,
+                                ESTADO,
+                                P.PROGRAMA,
+                                P.TIPO_PAGO,
+                                P.DEPOSITO,
+                                P.DEPOSITSEQ,
+                                P.IMPORTE IMPORTE_PAGO,
+                                P.EARNINGCODEID,
+                                P.EARNINGGROUPID,
+                                P.TIPO_DOCUMENTO,
+                                P.TIPO_AGENTE,
+                                B.IMPORTE_COMISION AS IMPORTE,
+                                (SELECT SUM(IMPORTE_COMISION)
+                                	FROM :TEMP_BASES_GUION_82_MACB38P S
+                                	WHERE S.POSITIONSEQ = B.POSITIONSEQ
+                                	AND S.PRODUCTID LIKE '%'||RIGHT(P.EARNINGCODEID,5)
+									AND S.EVENTTYPEID = 'Pago Comercial'
+                                ) AS SUMA_IMPORTE,
+                                NULL AS TIPO_REPARTO,
+                                0 AS NUM_TRAMO,
+                                NULL AS REPARTO_TIPO_BASE,
+                                NULL AS REPARTO_PORCENTAJE,
+                                POLIZA_FISICA,
+                                POLIZA_CORREGIDA,
+                                PRIMA_CORREGIDA,
+                                PRIMA_NETA,
+                                PRIMA_NETA_ANUAL,
+                                PRIMA_COMIS_S4 PRIMA_COMIS,
+                                NULL AS COEF_TIPO_BASE,
+                                NULL AS COEF_CORRECTOR,
+                                COD_AGENTE,
+                                P.TIPO_LIQ
+    					FROM :TEMP_PAGOS_DIRECTOS_X_RT P
+    					INNER JOIN :TEMP_BASES_GUION_82_MACB38P B ON P.POSITIONSEQ = B.POSITIONSEQ
+    				--	INNER JOIN :BASES_TOTAL_IMPORTE_GUION_82_MACB38P BT ON BT.POSITIONSEQ = B.POSITIONSEQ
+    					--POSITION
+    					WHERE (B.POS_PRIN = P.POS_PRIN OR B.MANAGER_POS_PRIN = P.POS_PRIN OR B.MAN_ACT_POS_PRIN = P.POS_PRIN) 
+    					--RAMO
+    					AND B.PRODUCTID LIKE '%'||RIGHT(P.EARNINGCODEID,5)
+    					--PERMANENCIA
+    					AND B.EVENTTYPEID = 'Pago Comercial' AND B.CODIGO_POLIZA = P.EARNINGGROUPID AND ESTADO = SUBSTRING(P.EARNINGCODEID,1,3)
+    					--TIPO CONCEPTO
+    					AND B.IMPORTE_COMISION <> 0
+    					AND NOT EXISTS (
+    					    SELECT 1 
+    					    FROM EXT.FINAL_REPEXT_FILE_TEST X 
+    					    WHERE X.POS_PRIN       = P.POS_PRIN
+    					      AND X.PERIODSEQ      = P.PERIODSEQ
+    					      AND X.EARNINGCODEID  = P.EARNINGCODEID
+    					      AND X.EARNINGGROUPID = P.EARNINGGROUPID
+    					      AND X.TIPO_DOCUMENTO = P.TIPO_DOCUMENTO
+    					      AND X.ORDERID        = B.ORDERID
+    					      AND X.LINENUMBER     = B.LINENUMBER
+    					      AND X.SUBLINENUMBER  = B.SUBLINENUMBER
+    					      AND X.EVENTTYPEID    = B.EVENTTYPEID
+    					);
+    					
+    	CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_FINAL_PAGOS_BASES_GUION_82_MACB38P: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');	
+    	
+    	--SELECT 'TEMP_FINAL_PAGOS_BASES_2_82_03_RT_MACB38P',* FROM :TEMP_FINAL_PAGOS_BASES_GUION_82_MACB38P;
+    	
+    	--LIQUIDACIÓN COMPLEMENTARIA
+		IF v_num_post > 1 AND i_tipo_reparto = 'CIERRE' THEN
+		
+			TEMP_PAGOS_DIRECTOS_GUION_82_MACB38P_LC = SELECT SUM(IMPORTE) SUMA_PAGOS,PERIODSEQ,POS_PRIN,EARNINGGROUPID,EARNINGCODEID,DEPOSITO 
+				FROM :TEMP_FINAL_PAGOS_BASES_GUION_82_MACB38P
+				WHERE TIPO_LIQ IN ('CIERRE','LIQ')
+				GROUP BY PERIODSEQ,POS_PRIN,EARNINGGROUPID,EARNINGCODEID,DEPOSITO;
+		
+			INSERT INTO EXT.FINAL_REPEXT_FILE_TEST("TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+		        ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+		        ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+		        ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ")
+		    SELECT "TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+		        ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE"*(-1),"TIPO_AGENTE","TIPO_DOCUMENTO",TF."EARNINGGROUPID"
+		        ,TF."EARNINGCODEID",TF.SUMA_IMPORTE,"DEPOSITSEQ",TF."DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+		        ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF",TF."POS_PRIN","POSITIONNAME","PERIODO",TF."PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ"
+		    FROM :TEMP_FINAL_PAGOS_BASES_GUION_82_MACB38P TF 
+		    	INNER JOIN :TEMP_PAGOS_DIRECTOS_GUION_82_MACB38P_LC TLC ON TF.PERIODSEQ = TLC.PERIODSEQ AND TF.POS_PRIN = TLC.POS_PRIN 
+		    	AND TF.EARNINGGROUPID = TLC.EARNINGGROUPID AND TF.EARNINGCODEID = TLC. EARNINGCODEID AND TF.DEPOSITO = TLC.DEPOSITO
+		    	AND 1 = (CASE WHEN SUMA_PAGOS <> SUMA_IMPORTE THEN 1 END); 
+		 END IF;
+    	-- FIN LIQUIDACIÓN COMPLEMENTARIA
+    	
+    	UPDATE F
+    	SET ESTADO_REPARTO = CASE 
+    		WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 2
+			WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 3
+			ELSE 4 
+		END
+		FROM EXT.FINAL_REPEXT_PAGOS_FILE_TEST F
+		INNER JOIN :TEMP_FINAL_PAGOS_BASES_GUION_82_MACB38P T ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+		AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID;
+		
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_PAGOS_FILE_TEST ESTADOS ACTUALIZADOS: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+		
+		UPDATE F
+            SET ESTADO_REPARTO = CASE 
+    				WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 2
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 3
+					ELSE 4 
+				END --REPARTO CORRECTO
+			FROM :TEMP_REPEXT_PAGOS_REPARTO_FILE F
+			INNER JOIN :TEMP_FINAL_PAGOS_BASES_GUION_82_MACB38P T ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+			AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+			WHERE 1 = (CASE 
+    				WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 1
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+					ELSE 0 
+				END)
+	--		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID
+			;
+        CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_REPEXT_PAGOS_REPARTO_FILE ESTADOS ACTUALIZADOS: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');   
+                                
+		
+		INSERT INTO EXT.FINAL_REPEXT_FILE_TEST("TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+            ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+            ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+            ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ")
+        SELECT "TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+            ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+            ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+            ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ"
+        FROM :TEMP_FINAL_PAGOS_BASES_GUION_82_MACB38P
+        WHERE 1 = (
+        	CASE 
+        		WHEN (IMPORTE_PAGO - IFNULL(SUMA_IMPORTE,0)) = 0 THEN 1
+    			WHEN (IMPORTE_PAGO - IFNULL(SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+    		ELSE 0 
+    		END);
+		---------------------------------------------------------------------------------------------------
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_FILE_TEST INSERTADOS: ' ||::ROWCOUNT, v_log_count, v_idproceso, 'info');	
+		---------------------------------------------------------------------------------------------------
+		
+		TEMP_FINAL_PAGOS_BASES_GUION_82_MACB38P_DIF =
+			SELECT T.PERIODSEQ,T.POS_PRIN,T.TIPO_DOCUMENTO,T.DEPOSITSEQ,T.EARNINGCODEID,T.EARNINGGROUPID,T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0) AS DIF,
+					T.ORDERID,T.LINENUMBER,T.SUBLINENUMBER,T.EVENTTYPEID, T.COMPENSATIONDATE,
+				ROW_NUMBER() OVER(
+                      		PARTITION BY T.PERIODSEQ,T.POS_PRIN,T.TIPO_DOCUMENTO,T.DEPOSITSEQ,T.EARNINGCODEID,T.EARNINGGROUPID
+                      		--ORDER BY T.ORDERID
+                      ) AS RN_TRX
+			FROM :TEMP_FINAL_PAGOS_BASES_GUION_82_MACB38P T
+			WHERE 1 = (CASE 
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 0
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+					ELSE 0 
+				END)
+		;
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_FINAL_PAGOS_BASES_GUION_82_MACB38P_DIF: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+		UPDATE F
+    	SET F.IMPORTE = F.IMPORTE + T.DIF
+    	FROM EXT.FINAL_REPEXT_FILE_TEST F
+    	INNER JOIN :TEMP_FINAL_PAGOS_BASES_GUION_82_MACB38P_DIF T  ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+		AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID
+		AND F.ORDERID = T.ORDERID AND F.LINENUMBER = T.LINENUMBER AND F.SUBLINENUMBER = T.SUBLINENUMBER AND F.EVENTTYPEID = T.EVENTTYPEID AND F.COMPENSATIONDATE = T.COMPENSATIONDATE
+		AND T.RN_TRX = 1
+		;
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_FILE_TEST IMPORTE_DIF: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');		
+
+
+		
+		---------------------------------------------------------------------------------------------------
+		-- GUION_82
+		---------------------------------------------------------------------------------------------------
+		
+		--BASES
+		IF i_tipo_reparto = 'CIERRE' THEN
+			TEMP_BASES_GUION_82 = SELECT * 
+	    		FROM EXT.FINAL_BASES_REPARTO_POLIZA_FILE B
+	    		WHERE PERIODSEQ = i_periodSeq
+	    		--RAMO EARNINGGROUPID = '01-RT'
+	    		--AND PRODUCTID LIKE '032%'
+	    		ORDER BY POSITIONSEQ;
+	    	CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_BASES_GUION_82: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+	    ELSE
+	    	TEMP_BASES_GUION_82 = SELECT * 
+    		FROM EXT.FINAL_BASES_REPARTO_POLIZA_FILE_NUEVA_BASE_REPARTO B
+    		WHERE PERIODSEQ = v_periodSeqAnterior
+    		--RAMO EARNINGGROUPID = '01-RT'
+    		--AND PRODUCTID LIKE '032%'
+    		ORDER BY POSITIONSEQ;
+    		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_BASES_GUION_82 (BALANCE): ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+    	END IF;
+			-- SELECT 'TEMP_BASES_GUION_82',* FROM :TEMP_BASES_GUION_82;	
+			
+		--BASES_TOTAL_IMPORTE
+    	BASES_TOTAL_IMPORTE_GUION_82 = 
+			SELECT POSITIONSEQ, SUM(IMPORTE_COMISION) AS SUMA_IMPORTE
+			FROM :TEMP_BASES_GUION_82
+			WHERE IMPORTE_COMISION <> 0
+			GROUP BY POSITIONSEQ;
+			
+			
+		--FINAL
+    	TEMP_FINAL_PAGOS_BASES_GUION_82= SELECT P.PARTICIPANTSEQ,
+                                P.POSITIONSEQ,
+                                P.PERIODSEQ,
+                                :v_periodName AS PERIODO,
+                                P.POS_CALLIDUS POSITIONNAME,
+                                P.POS_PRIN,
+                                P.NIF,
+                                P.MANAGER_POS_PRIN,
+                                ORDERID,
+                                LINENUMBER,
+                                SUBLINENUMBER,
+                                EVENTTYPEID,
+                                PRODUCTID,
+                                CODIGO_POLIZA,
+                                COMPENSATIONDATE,
+                                ESTADO,
+                                P.PROGRAMA,
+                                P.TIPO_PAGO,
+                                P.DEPOSITO,
+                                P.DEPOSITSEQ,
+                                P.IMPORTE IMPORTE_PAGO,
+                                P.EARNINGCODEID,
+                                P.EARNINGGROUPID,
+                                P.TIPO_DOCUMENTO,
+                                P.TIPO_AGENTE,
+                                B.IMPORTE_COMISION AS IMPORTE,
+                                BT.SUMA_IMPORTE AS SUMA_IMPORTE,
+                                NULL AS TIPO_REPARTO,
+                                0 AS NUM_TRAMO,
+                                NULL AS REPARTO_TIPO_BASE,
+                                NULL AS REPARTO_PORCENTAJE,
+                                POLIZA_FISICA,
+                                POLIZA_CORREGIDA,
+                                PRIMA_CORREGIDA,
+                                PRIMA_NETA,
+                                PRIMA_NETA_ANUAL,
+                                PRIMA_COMIS_S4 PRIMA_COMIS,
+                                NULL AS COEF_TIPO_BASE,
+                                NULL AS COEF_CORRECTOR,
+                                COD_AGENTE,
+                                P.TIPO_LIQ
+    					FROM :TEMP_PAGOS_DIRECTOS_X_RT P
+    					INNER JOIN :TEMP_BASES_GUION_82 B ON P.POSITIONSEQ = B.POSITIONSEQ
+    					INNER JOIN :BASES_TOTAL_IMPORTE_GUION_82 BT ON BT.POSITIONSEQ = B.POSITIONSEQ
+    					--POSITION
+    					WHERE (B.POS_PRIN = P.POS_PRIN OR B.MANAGER_POS_PRIN = P.POS_PRIN OR B.MAN_ACT_POS_PRIN = P.POS_PRIN) 
+    					--RAMO
+    					AND 1=0
+    					--PERMANENCIA
+    					--AND B.EVENTTYPEID = 'Pago Comercial' AND B.CODIGO_POLIZA = P.EARNINGGROUPID AND ESTADO = SUBSTRING(P.EARNINGCODEID,1,3)
+    					--TIPO CONCEPTO
+    					AND B.IMPORTE_COMISION <> 0
+    					AND NOT EXISTS (
+    					    SELECT 1 
+    					    FROM EXT.FINAL_REPEXT_FILE_TEST X 
+    					    WHERE X.POS_PRIN       = P.POS_PRIN
+    					      AND X.PERIODSEQ      = P.PERIODSEQ
+    					      AND X.EARNINGCODEID  = P.EARNINGCODEID
+    					      AND X.EARNINGGROUPID = P.EARNINGGROUPID
+    					      AND X.TIPO_DOCUMENTO = P.TIPO_DOCUMENTO
+    					      AND X.ORDERID        = B.ORDERID
+    					      AND X.LINENUMBER     = B.LINENUMBER
+    					      AND X.SUBLINENUMBER  = B.SUBLINENUMBER
+    					      AND X.EVENTTYPEID    = B.EVENTTYPEID
+    					);
+    	CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_FINAL_PAGOS_BASES_GUION_82 ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');	
+    	
+    	--SELECT 'TEMP_FINAL_PAGOS_BASES_GUION_82',* FROM :TEMP_FINAL_PAGOS_BASES_GUION_82;
+    	
+    	--LIQUIDACIÓN COMPLEMENTARIA
+		IF v_num_post > 1 AND i_tipo_reparto = 'CIERRE' THEN
+		
+			TEMP_PAGOS_DIRECTOS_GUION_82_LC = SELECT SUM(IMPORTE) SUMA_PAGOS,PERIODSEQ,POS_PRIN,EARNINGGROUPID,EARNINGCODEID,DEPOSITO 
+				FROM :TEMP_FINAL_PAGOS_BASES_GUION_82
+				WHERE TIPO_LIQ IN ('CIERRE','LIQ')
+				GROUP BY PERIODSEQ,POS_PRIN,EARNINGGROUPID,EARNINGCODEID,DEPOSITO;
+		
+			INSERT INTO EXT.FINAL_REPEXT_FILE_TEST("TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+		        ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+		        ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+		        ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ")
+		    SELECT "TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+		        ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE"*(-1),"TIPO_AGENTE","TIPO_DOCUMENTO",TF."EARNINGGROUPID"
+		        ,TF."EARNINGCODEID",TF.SUMA_IMPORTE,"DEPOSITSEQ",TF."DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+		        ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF",TF."POS_PRIN","POSITIONNAME","PERIODO",TF."PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ"
+		    FROM :TEMP_FINAL_PAGOS_BASES_GUION_82 TF 
+		    	INNER JOIN :TEMP_PAGOS_DIRECTOS_GUION_82_LC TLC ON TF.PERIODSEQ = TLC.PERIODSEQ AND TF.POS_PRIN = TLC.POS_PRIN 
+		    	AND TF.EARNINGGROUPID = TLC.EARNINGGROUPID AND TF.EARNINGCODEID = TLC. EARNINGCODEID AND TF.DEPOSITO = TLC.DEPOSITO
+		    	AND 1 = (CASE WHEN SUMA_PAGOS <> SUMA_IMPORTE THEN 1 END); 
+		 END IF;
+    	-- FIN LIQUIDACIÓN COMPLEMENTARIA
+    	
+    	UPDATE F
+    	SET ESTADO_REPARTO = CASE 
+    		WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 2
+			WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 3
+			ELSE 4 
+		END
+		FROM EXT.FINAL_REPEXT_PAGOS_FILE_TEST F
+		INNER JOIN :TEMP_FINAL_PAGOS_BASES_GUION_82 T ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+		AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID;
+		
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_PAGOS_FILE_TEST ESTADOS ACTUALIZADOS: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+		
+		UPDATE F
+            SET ESTADO_REPARTO = CASE 
+    				WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 2
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 3
+					ELSE 4 
+				END --REPARTO CORRECTO
+			FROM :TEMP_REPEXT_PAGOS_REPARTO_FILE F
+			INNER JOIN :TEMP_FINAL_PAGOS_BASES_GUION_82 T ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+			AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+			WHERE 1 = (CASE 
+    				WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 1
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+					ELSE 0 
+				END)
+	--		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID
+			;
+        CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_REPEXT_PAGOS_REPARTO_FILE ESTADOS ACTUALIZADOS: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');   
+                               
+		
+		INSERT INTO EXT.FINAL_REPEXT_FILE_TEST("TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+            ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+            ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+            ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ")
+        SELECT "TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+            ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+            ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+            ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ"
+        FROM :TEMP_FINAL_PAGOS_BASES_GUION_82
+        WHERE 1 = (
+        	CASE 
+        		WHEN (IMPORTE_PAGO - IFNULL(SUMA_IMPORTE,0)) = 0 THEN 1
+    			WHEN (IMPORTE_PAGO - IFNULL(SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+    		ELSE 0 
+    		END);
+		---------------------------------------------------------------------------------------------------
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_FILE_TEST INSERTADOS: ' ||::ROWCOUNT, v_log_count, v_idproceso, 'info');	
+		---------------------------------------------------------------------------------------------------
+		
+		TEMP_FINAL_PAGOS_BASES_GUION_82_DIF =
+			SELECT T.PERIODSEQ,T.POS_PRIN,T.TIPO_DOCUMENTO,T.DEPOSITSEQ,T.EARNINGCODEID,T.EARNINGGROUPID,T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0) AS DIF,
+					T.ORDERID,T.LINENUMBER,T.SUBLINENUMBER,T.EVENTTYPEID, T.COMPENSATIONDATE,
+				ROW_NUMBER() OVER(
+                      		PARTITION BY T.PERIODSEQ,T.POS_PRIN,T.TIPO_DOCUMENTO,T.DEPOSITSEQ,T.EARNINGCODEID,T.EARNINGGROUPID
+                      		--ORDER BY T.ORDERID
+                      ) AS RN_TRX
+			FROM :TEMP_FINAL_PAGOS_BASES_GUION_82 T
+			WHERE 1 = (CASE 
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 0
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+					ELSE 0 
+				END)
+		;
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_FINAL_PAGOS_BASES_GUION_82_DIF: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+		UPDATE F
+    	SET F.IMPORTE = F.IMPORTE + T.DIF
+    	FROM EXT.FINAL_REPEXT_FILE_TEST F
+    	INNER JOIN :TEMP_FINAL_PAGOS_BASES_GUION_82_DIF T  ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+		AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID
+		AND F.ORDERID = T.ORDERID AND F.LINENUMBER = T.LINENUMBER AND F.SUBLINENUMBER = T.SUBLINENUMBER AND F.EVENTTYPEID = T.EVENTTYPEID AND F.COMPENSATIONDATE = T.COMPENSATIONDATE
+		AND T.RN_TRX = 1
+		;
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_FILE_TEST IMPORTE_DIF: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');		
+		
+		
+		
+		---------------------------------------------------------------------------------------------------
+		-- GUION_50_MAC38P
+		---------------------------------------------------------------------------------------------------
+		
+		--BASES
+		IF i_tipo_reparto = 'CIERRE' THEN
+			TEMP_BASES_GUION_50_MAC38P = SELECT * 
+	    		FROM EXT.FINAL_BASES_REPARTO_POLIZA_FILE B
+	    		WHERE PERIODSEQ = i_periodSeq
+	    		--RAMO EARNINGGROUPID = '01-RT'
+	    		--AND PRODUCTID LIKE '032%'
+	    		ORDER BY POSITIONSEQ;
+	    	CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_BASES_GUION_50_MAC38P: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+	    ELSE
+	    	TEMP_BASES_GUION_50_MAC38P = SELECT * 
+    		FROM EXT.FINAL_BASES_REPARTO_POLIZA_FILE_NUEVA_BASE_REPARTO B
+    		WHERE PERIODSEQ = v_periodSeqAnterior
+    		--RAMO EARNINGGROUPID = '01-RT'
+    		--AND PRODUCTID LIKE '032%'
+    		ORDER BY POSITIONSEQ;
+    		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_BASES_GUION_50_MAC38P (BALANCE): ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+    	END IF;
+			
+			
+		-- --BASES_TOTAL_IMPORTE
+  --  	BASES_TOTAL_IMPORTE_GUION_50_MAC38P = 
+		-- 	SELECT POSITIONSEQ, SUM(IMPORTE_COMISION) AS SUMA_IMPORTE
+		-- 	FROM :TEMP_BASES_GUION_50_MAC38P
+		-- 	WHERE IMPORTE_COMISION <> 0
+		-- 	GROUP BY POSITIONSEQ;
+			
+		--FINAL
+    	TEMP_FINAL_PAGOS_BASES_GUION_50_MAC38P= SELECT P.PARTICIPANTSEQ,
+                                P.POSITIONSEQ,
+                                P.PERIODSEQ,
+                                :v_periodName AS PERIODO,
+                                P.POS_CALLIDUS POSITIONNAME,
+                                P.POS_PRIN,
+                                P.NIF,
+                                P.MANAGER_POS_PRIN,
+                                ORDERID,
+                                LINENUMBER,
+                                SUBLINENUMBER,
+                                EVENTTYPEID,
+                                PRODUCTID,
+                                CODIGO_POLIZA,
+                                COMPENSATIONDATE,
+                                ESTADO,
+                                P.PROGRAMA,
+                                P.TIPO_PAGO,
+                                P.DEPOSITO,
+                                P.DEPOSITSEQ,
+                                P.IMPORTE IMPORTE_PAGO,
+                                P.EARNINGCODEID,
+                                P.EARNINGGROUPID,
+                                P.TIPO_DOCUMENTO,
+                                P.TIPO_AGENTE,
+                                B.IMPORTE_COMISION AS IMPORTE,
+                                (SELECT SUM(IMPORTE_COMISION)
+                                	FROM :TEMP_BASES_GUION_50_MAC38P S
+                                	WHERE S.POSITIONSEQ = B.POSITIONSEQ
+                                	AND S.PRODUCTID LIKE '%'||RIGHT(P.EARNINGCODEID,5)
+									AND S.EVENTTYPEID = 'Pago Comercial'
+                                ) AS SUMA_IMPORTE,
+                                NULL AS TIPO_REPARTO,
+                                0 AS NUM_TRAMO,
+                                NULL AS REPARTO_TIPO_BASE,
+                                NULL AS REPARTO_PORCENTAJE,
+                                POLIZA_FISICA,
+                                POLIZA_CORREGIDA,
+                                PRIMA_CORREGIDA,
+                                PRIMA_NETA,
+                                PRIMA_NETA_ANUAL,
+                                PRIMA_COMIS_S4 PRIMA_COMIS,
+                                NULL AS COEF_TIPO_BASE,
+                                NULL AS COEF_CORRECTOR,
+                                COD_AGENTE,
+                                P.TIPO_LIQ
+    					FROM :TEMP_PAGOS_DIRECTOS_X_RT P
+    					INNER JOIN :TEMP_BASES_GUION_50_MAC38P B ON P.POSITIONSEQ = B.POSITIONSEQ
+    					--INNER JOIN :BASES_TOTAL_IMPORTE_GUION_50_MAC38P BT ON BT.POSITIONSEQ = B.POSITIONSEQ
+    					--POSITION
+    					WHERE (B.POS_PRIN = P.POS_PRIN OR B.MANAGER_POS_PRIN = P.POS_PRIN ) 
+    					--RAMO
+    					AND B.PRODUCTID LIKE '%'||RIGHT(P.EARNINGCODEID,5)
+    					--PERMANENCIA
+    					AND B.EVENTTYPEID = 'Pago Comercial' AND B.CODIGO_POLIZA = P.EARNINGGROUPID AND ESTADO = SUBSTRING(P.EARNINGCODEID,1,3)
+    					--TIPO CONCEPTO
+    					AND B.IMPORTE_COMISION <> 0
+    					AND NOT EXISTS (
+    					    SELECT 1 
+    					    FROM EXT.FINAL_REPEXT_FILE_TEST X 
+    					    WHERE X.POS_PRIN       = P.POS_PRIN
+    					      AND X.PERIODSEQ      = P.PERIODSEQ
+    					      AND X.EARNINGCODEID  = P.EARNINGCODEID
+    					      AND X.EARNINGGROUPID = P.EARNINGGROUPID
+    					      AND X.TIPO_DOCUMENTO = P.TIPO_DOCUMENTO
+    					      AND X.ORDERID        = B.ORDERID
+    					      AND X.LINENUMBER     = B.LINENUMBER
+    					      AND X.SUBLINENUMBER  = B.SUBLINENUMBER
+    					      AND X.EVENTTYPEID    = B.EVENTTYPEID
+    					);
+    	CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_FINAL_PAGOS_BASES_GUION_50_MAC38P: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');	
+    	
+    	--SELECT 'TEMP_FINAL_PAGOS_BASES_GUION_50_MAC38P',* FROM :TEMP_FINAL_PAGOS_BASES_GUION_50_MAC38P;
+    	
+    	--LIQUIDACIÓN COMPLEMENTARIA
+		IF v_num_post > 1 AND i_tipo_reparto = 'CIERRE' THEN
+		
+			TEMP_PAGOS_DIRECTOS_GUION_50_MAC38P_LC = SELECT SUM(IMPORTE) SUMA_PAGOS,PERIODSEQ,POS_PRIN,EARNINGGROUPID,EARNINGCODEID,DEPOSITO 
+				FROM :TEMP_FINAL_PAGOS_BASES_GUION_50_MAC38P
+				WHERE TIPO_LIQ IN ('CIERRE','LIQ')
+				GROUP BY PERIODSEQ,POS_PRIN,EARNINGGROUPID,EARNINGCODEID,DEPOSITO;
+		
+			INSERT INTO EXT.FINAL_REPEXT_FILE_TEST("TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+		        ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+		        ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+		        ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ")
+		    SELECT "TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+		        ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE"*(-1),"TIPO_AGENTE","TIPO_DOCUMENTO",TF."EARNINGGROUPID"
+		        ,TF."EARNINGCODEID",TF.SUMA_IMPORTE,"DEPOSITSEQ",TF."DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+		        ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF",TF."POS_PRIN","POSITIONNAME","PERIODO",TF."PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ"
+		    FROM :TEMP_FINAL_PAGOS_BASES_GUION_50_MAC38P TF 
+		    	INNER JOIN :TEMP_PAGOS_DIRECTOS_GUION_50_MAC38P_LC TLC ON TF.PERIODSEQ = TLC.PERIODSEQ AND TF.POS_PRIN = TLC.POS_PRIN 
+		    	AND TF.EARNINGGROUPID = TLC.EARNINGGROUPID AND TF.EARNINGCODEID = TLC. EARNINGCODEID AND TF.DEPOSITO = TLC.DEPOSITO
+		    	AND 1 = (CASE WHEN SUMA_PAGOS <> SUMA_IMPORTE THEN 1 END); 
+		 END IF;
+    	-- FIN LIQUIDACIÓN COMPLEMENTARIA
+    	
+    	
+    	UPDATE F
+    	SET ESTADO_REPARTO = CASE 
+    		WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 2
+			WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 3
+			ELSE 4 
+		END
+		FROM EXT.FINAL_REPEXT_PAGOS_FILE_TEST F
+		INNER JOIN :TEMP_FINAL_PAGOS_BASES_GUION_50_MAC38P T ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+		AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID;
+		
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_PAGOS_FILE_TEST ESTADOS ACTUALIZADOS: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+		
+		UPDATE F
+            SET ESTADO_REPARTO = CASE 
+    				WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 2
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 3
+					ELSE 4 
+				END --REPARTO CORRECTO
+			FROM :TEMP_REPEXT_PAGOS_REPARTO_FILE F
+			INNER JOIN :TEMP_FINAL_PAGOS_BASES_GUION_50_MAC38P T ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+			AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+			WHERE 1 = (CASE 
+    				WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 1
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+					ELSE 0 
+				END)
+	--		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID
+			;
+        CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_REPEXT_PAGOS_REPARTO_FILE ESTADOS ACTUALIZADOS: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');   
+                                  
+		
+		INSERT INTO EXT.FINAL_REPEXT_FILE_TEST("TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+            ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+            ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+            ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ")
+        SELECT "TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+            ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+            ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+            ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ"
+        FROM :TEMP_FINAL_PAGOS_BASES_GUION_50_MAC38P
+        WHERE 1 = (
+        	CASE 
+        		WHEN (IMPORTE_PAGO - IFNULL(SUMA_IMPORTE,0)) = 0 THEN 1
+    			WHEN (IMPORTE_PAGO - IFNULL(SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+    		ELSE 0 
+    		END);
+		---------------------------------------------------------------------------------------------------
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_FILE_TEST INSERTADOS: ' ||::ROWCOUNT, v_log_count, v_idproceso, 'info');	
+		---------------------------------------------------------------------------------------------------
+		
+		TEMP_FINAL_PAGOS_BASES_GUION_50_MAC38P_DIF =
+			SELECT T.PERIODSEQ,T.POS_PRIN,T.TIPO_DOCUMENTO,T.DEPOSITSEQ,T.EARNINGCODEID,T.EARNINGGROUPID,T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0) AS DIF,
+				T.ORDERID,T.LINENUMBER,T.SUBLINENUMBER,T.EVENTTYPEID, T.COMPENSATIONDATE,
+				ROW_NUMBER() OVER(
+                      		PARTITION BY T.PERIODSEQ,T.POS_PRIN,T.TIPO_DOCUMENTO,T.DEPOSITSEQ,T.EARNINGCODEID,T.EARNINGGROUPID
+                      		--ORDER BY T.ORDERID
+                      ) AS RN_TRX
+			FROM :TEMP_FINAL_PAGOS_BASES_GUION_50_MAC38P T
+			WHERE 1 = (CASE 
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 0
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+					ELSE 0 
+				END)
+		;
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_FINAL_PAGOS_BASES_GUION_50_MACB38P_DIF: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+		UPDATE F
+    	SET F.IMPORTE = F.IMPORTE + T.DIF
+    	FROM EXT.FINAL_REPEXT_FILE_TEST F
+    	INNER JOIN :TEMP_FINAL_PAGOS_BASES_GUION_50_MAC38P_DIF T  ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+		AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID
+		AND F.ORDERID = T.ORDERID AND F.LINENUMBER = T.LINENUMBER AND F.SUBLINENUMBER = T.SUBLINENUMBER AND F.EVENTTYPEID = T.EVENTTYPEID AND F.COMPENSATIONDATE = T.COMPENSATIONDATE
+		AND T.RN_TRX = 1
+		;
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_FILE_TEST IMPORTE_DIF: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');		
+		
+		
+		---------------------------------------------------------------------------------------------------
+		-- GUION_50
+		---------------------------------------------------------------------------------------------------
+		
+		--BASES
+		IF i_tipo_reparto = 'CIERRE' THEN
+			TEMP_BASES_GUION_50 = SELECT * 
+	    		FROM EXT.FINAL_BASES_REPARTO_POLIZA_FILE B
+	    		WHERE PERIODSEQ = i_periodSeq
+	    		--RAMO EARNINGGROUPID = '01-RT'
+	    		--AND PRODUCTID LIKE '032%'
+	    		ORDER BY POSITIONSEQ;
+	    	CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_BASES_GUION_50: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+	    ELSE
+	    	TEMP_BASES_GUION_50 = SELECT * 
+	    		FROM EXT.FINAL_BASES_REPARTO_POLIZA_FILE_NUEVA_BASE_REPARTO B
+	    		WHERE PERIODSEQ = v_periodSeqAnterior
+	    		--RAMO EARNINGGROUPID = '01-RT'
+	    		--AND PRODUCTID LIKE '032%'
+	    		ORDER BY POSITIONSEQ;
+	    	CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_BASES_GUION_50 (BALANCE): ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+	    END IF;
+			
+		--BASES_TOTAL_IMPORTE
+    	BASES_TOTAL_IMPORTE_GUION_50 = 
+			SELECT POSITIONSEQ, SUM(IMPORTE_COMISION) AS SUMA_IMPORTE
+			FROM :TEMP_BASES_GUION_50
+			WHERE IMPORTE_COMISION <> 0
+			GROUP BY POSITIONSEQ;
+			
+		--FINAL
+    	TEMP_FINAL_PAGOS_BASES_GUION_50 = SELECT P.PARTICIPANTSEQ,
+                                P.POSITIONSEQ,
+                                P.PERIODSEQ,
+                                :v_periodName AS PERIODO,
+                                P.POS_CALLIDUS POSITIONNAME,
+                                P.POS_PRIN,
+                                P.NIF,
+                                P.MANAGER_POS_PRIN,
+                                ORDERID,
+                                LINENUMBER,
+                                SUBLINENUMBER,
+                                EVENTTYPEID,
+                                PRODUCTID,
+                                CODIGO_POLIZA,
+                                COMPENSATIONDATE,
+                                ESTADO,
+                                P.PROGRAMA,
+                                P.TIPO_PAGO,
+                                P.DEPOSITO,
+                                P.DEPOSITSEQ,
+                                P.IMPORTE IMPORTE_PAGO,
+                                P.EARNINGCODEID,
+                                P.EARNINGGROUPID,
+                                P.TIPO_DOCUMENTO,
+                                P.TIPO_AGENTE,
+                                B.IMPORTE_COMISION AS IMPORTE,
+                                BT.SUMA_IMPORTE AS SUMA_IMPORTE,
+                                NULL AS TIPO_REPARTO,
+                                0 AS NUM_TRAMO,
+                                NULL AS REPARTO_TIPO_BASE,
+                                NULL AS REPARTO_PORCENTAJE,
+                                POLIZA_FISICA,
+                                POLIZA_CORREGIDA,
+                                PRIMA_CORREGIDA,
+                                PRIMA_NETA,
+                                PRIMA_NETA_ANUAL,
+                                PRIMA_COMIS_S4 PRIMA_COMIS,
+                                NULL AS COEF_TIPO_BASE,
+                                NULL AS COEF_CORRECTOR,
+                                COD_AGENTE,
+                                P.TIPO_LIQ
+    					FROM :TEMP_PAGOS_DIRECTOS_X_RT P
+    					INNER JOIN :TEMP_BASES_GUION_50 B ON P.POSITIONSEQ = B.POSITIONSEQ
+    					INNER JOIN :BASES_TOTAL_IMPORTE_GUION_50 BT ON BT.POSITIONSEQ = B.POSITIONSEQ
+    					--POSITION
+    					WHERE (B.POS_PRIN = P.POS_PRIN OR B.MANAGER_POS_PRIN = P.POS_PRIN ) 
+    					--RAMO
+    					AND 1 = 0 --B.PRODUCTID LIKE '%'||RIGHT(P.EARNINGCODEID,5)||'%'
+    					--PERMANENCIA
+    					AND B.EVENTTYPEID = 'Pago Comercial' AND B.CODIGO_POLIZA = P.EARNINGGROUPID AND ESTADO = SUBSTRING(P.EARNINGCODEID,1,3)
+    					--TIPO CONCEPTO
+    					AND B.IMPORTE_COMISION <> 0
+    					AND NOT EXISTS (
+    					    SELECT 1 
+    					    FROM EXT.FINAL_REPEXT_FILE_TEST X 
+    					    WHERE X.POS_PRIN       = P.POS_PRIN
+    					      AND X.PERIODSEQ      = P.PERIODSEQ
+    					      AND X.EARNINGCODEID  = P.EARNINGCODEID
+    					      AND X.EARNINGGROUPID = P.EARNINGGROUPID
+    					      AND X.TIPO_DOCUMENTO = P.TIPO_DOCUMENTO
+    					      AND X.ORDERID        = B.ORDERID
+    					      AND X.LINENUMBER     = B.LINENUMBER
+    					      AND X.SUBLINENUMBER  = B.SUBLINENUMBER
+    					      AND X.EVENTTYPEID    = B.EVENTTYPEID
+    					);
+    	CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_FINAL_PAGOS_BASES_GUION_50: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');	
+    	
+    	
+    	
+    	--LIQUIDACIÓN COMPLEMENTARIA
+		IF v_num_post > 1 AND i_tipo_reparto = 'CIERRE' THEN
+		
+			TEMP_PAGOS_DIRECTOS_GUION_50_LC = SELECT SUM(IMPORTE) SUMA_PAGOS,PERIODSEQ,POS_PRIN,EARNINGGROUPID,EARNINGCODEID,DEPOSITO 
+				FROM :TEMP_FINAL_PAGOS_BASES_GUION_50
+				WHERE TIPO_LIQ IN ('CIERRE','LIQ')
+				GROUP BY PERIODSEQ,POS_PRIN,EARNINGGROUPID,EARNINGCODEID,DEPOSITO;
+		
+			INSERT INTO EXT.FINAL_REPEXT_FILE_TEST("TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+		        ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+		        ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+		        ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ")
+		    SELECT "TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+		        ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE"*(-1),"TIPO_AGENTE","TIPO_DOCUMENTO",TF."EARNINGGROUPID"
+		        ,TF."EARNINGCODEID",TF.SUMA_IMPORTE,"DEPOSITSEQ",TF."DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+		        ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF",TF."POS_PRIN","POSITIONNAME","PERIODO",TF."PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ"
+		    FROM :TEMP_FINAL_PAGOS_BASES_GUION_50 TF 
+		    	INNER JOIN :TEMP_PAGOS_DIRECTOS_GUION_50_LC TLC ON TF.PERIODSEQ = TLC.PERIODSEQ AND TF.POS_PRIN = TLC.POS_PRIN 
+		    	AND TF.EARNINGGROUPID = TLC.EARNINGGROUPID AND TF.EARNINGCODEID = TLC. EARNINGCODEID AND TF.DEPOSITO = TLC.DEPOSITO
+		    	AND 1 = (CASE WHEN SUMA_PAGOS <> SUMA_IMPORTE THEN 1 END); 
+		 END IF;
+    	-- FIN LIQUIDACIÓN COMPLEMENTARIA
+    	
+    	
+    	UPDATE F
+    	SET ESTADO_REPARTO = CASE 
+    		WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 2
+			WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 3
+			ELSE 4 
+		END
+		FROM EXT.FINAL_REPEXT_PAGOS_FILE_TEST F
+		INNER JOIN :TEMP_FINAL_PAGOS_BASES_GUION_50 T ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+		AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID;
+		
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_PAGOS_FILE_TEST ESTADOS ACTUALIZADOS: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+		
+		UPDATE F
+            SET ESTADO_REPARTO = CASE 
+    				WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 2
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 3
+					ELSE 4 
+				END --REPARTO CORRECTO
+			FROM :TEMP_REPEXT_PAGOS_REPARTO_FILE F
+			INNER JOIN :TEMP_FINAL_PAGOS_BASES_GUION_50 T ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+			AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+			WHERE 1 = (CASE 
+    				WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 1
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+					ELSE 0 
+				END)
+	--		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID
+			;
+        CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_REPEXT_PAGOS_REPARTO_FILE ESTADOS ACTUALIZADOS: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');   
+                                   
+		
+		INSERT INTO EXT.FINAL_REPEXT_FILE_TEST("TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+            ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+            ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+            ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ")
+        SELECT "TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+            ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+            ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+            ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ"
+        FROM :TEMP_FINAL_PAGOS_BASES_GUION_50
+        WHERE 1 = (
+        	CASE 
+        		WHEN (IMPORTE_PAGO - IFNULL(SUMA_IMPORTE,0)) = 0 THEN 1
+    			WHEN (IMPORTE_PAGO - IFNULL(SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+    		ELSE 0 
+    		END);
+		---------------------------------------------------------------------------------------------------
+
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_FILE_TEST INSERTADOS: ' ||::ROWCOUNT, v_log_count, v_idproceso, 'info');	
+		---------------------------------------------------------------------------------------------------
+		
+		TEMP_FINAL_PAGOS_BASES_GUION_50_DIF =
+			SELECT T.PERIODSEQ,T.POS_PRIN,T.TIPO_DOCUMENTO,T.DEPOSITSEQ,T.EARNINGCODEID,T.EARNINGGROUPID,T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0) AS DIF,
+				T.ORDERID,T.LINENUMBER,T.SUBLINENUMBER,T.EVENTTYPEID, T.COMPENSATIONDATE,
+				ROW_NUMBER() OVER(
+                      		PARTITION BY T.PERIODSEQ,T.POS_PRIN,T.TIPO_DOCUMENTO,T.DEPOSITSEQ,T.EARNINGCODEID,T.EARNINGGROUPID
+                      		--ORDER BY T.ORDERID
+                      ) AS RN_TRX
+			FROM :TEMP_FINAL_PAGOS_BASES_GUION_50 T
+			WHERE 1 = (CASE 
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 0
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+					ELSE 0 
+				END)
+		;
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_FINAL_PAGOS_BASES_GUION_50_DIF: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+		UPDATE F
+    	SET F.IMPORTE = F.IMPORTE + T.DIF
+    	FROM EXT.FINAL_REPEXT_FILE_TEST F
+    	INNER JOIN :TEMP_FINAL_PAGOS_BASES_GUION_50_DIF T  ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+		AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID
+		AND F.ORDERID = T.ORDERID AND F.LINENUMBER = T.LINENUMBER AND F.SUBLINENUMBER = T.SUBLINENUMBER AND F.EVENTTYPEID = T.EVENTTYPEID AND F.COMPENSATIONDATE = T.COMPENSATIONDATE
+		AND T.RN_TRX = 1
+		;
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_FILE_TEST IMPORTE_DIF: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');			
+		
+		---------------------------------------------------------------------------------------------------
+		-- GUION_MAC38P
+		---------------------------------------------------------------------------------------------------
+		
+		--BASES
+		IF i_tipo_reparto = 'CIERRE' THEN
+			TEMP_BASES_GUION_MAC38P = SELECT * 
+	    		FROM EXT.FINAL_BASES_REPARTO_POLIZA_FILE B
+	    		WHERE PERIODSEQ = i_periodSeq
+	    		--RAMO EARNINGGROUPID = '01-RT'
+	    		--AND PRODUCTID LIKE '032%'
+	    		ORDER BY POSITIONSEQ;
+	    	CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_BASES_GUION_MAC38P: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+	    ELSE
+	    	TEMP_BASES_GUION_MAC38P = SELECT * 
+    		FROM EXT.FINAL_BASES_REPARTO_POLIZA_FILE_NUEVA_BASE_REPARTO B
+    		WHERE PERIODSEQ = v_periodSeqAnterior
+    		--RAMO EARNINGGROUPID = '01-RT'
+    		--AND PRODUCTID LIKE '032%'
+    		ORDER BY POSITIONSEQ;
+    		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_BASES_GUION_MAC38P (BALANCE): ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+    	END IF;
+		
+			
+		-- --BASES_TOTAL_IMPORTE
+  --  	BASES_TOTAL_IMPORTE_GUION_MAC38P = 
+		-- 	SELECT POSITIONSEQ, SUM(IMPORTE_COMISION) AS SUMA_IMPORTE
+		-- 	FROM :TEMP_BASES_GUION_MAC38P
+		-- 	WHERE IMPORTE_COMISION <> 0
+		-- 	GROUP BY POSITIONSEQ;
+			
+		--FINAL
+    	TEMP_FINAL_PAGOS_BASES_GUION_MAC38P = SELECT P.PARTICIPANTSEQ,
+                                P.POSITIONSEQ,
+                                P.PERIODSEQ,
+                                :v_periodName AS PERIODO,
+                                P.POS_CALLIDUS POSITIONNAME,
+                                P.POS_PRIN,
+                                P.NIF,
+                                P.MANAGER_POS_PRIN,
+                                ORDERID,
+                                LINENUMBER,
+                                SUBLINENUMBER,
+                                EVENTTYPEID,
+                                PRODUCTID,
+                                CODIGO_POLIZA,
+                                COMPENSATIONDATE,
+                                ESTADO,
+                                P.PROGRAMA,
+                                P.TIPO_PAGO,
+                                P.DEPOSITO,
+                                P.DEPOSITSEQ,
+                                P.IMPORTE IMPORTE_PAGO,
+                                P.EARNINGCODEID,
+                                P.EARNINGGROUPID,
+                                P.TIPO_DOCUMENTO,
+                                P.TIPO_AGENTE,
+                                B.IMPORTE_COMISION AS IMPORTE,
+                                (SELECT SUM(IMPORTE_COMISION)
+                                	FROM :TEMP_BASES_GUION_MAC38P S
+                                	WHERE S.POSITIONSEQ = B.POSITIONSEQ
+                                	AND S.PRODUCTID LIKE '%'||RIGHT(P.EARNINGCODEID,5)
+									AND S.EVENTTYPEID = 'Pago Comercial'
+                                ) AS SUMA_IMPORTE,
+                                NULL AS TIPO_REPARTO,
+                                0 AS NUM_TRAMO,
+                                NULL AS REPARTO_TIPO_BASE,
+                                NULL AS REPARTO_PORCENTAJE,
+                                POLIZA_FISICA,
+                                POLIZA_CORREGIDA,
+                                PRIMA_CORREGIDA,
+                                PRIMA_NETA,
+                                PRIMA_NETA_ANUAL,
+                                PRIMA_COMIS_S4 PRIMA_COMIS,
+                                NULL AS COEF_TIPO_BASE,
+                                NULL AS COEF_CORRECTOR,
+                                COD_AGENTE,
+                                P.TIPO_LIQ
+    					FROM :TEMP_PAGOS_DIRECTOS_X_RT P
+    					INNER JOIN :TEMP_BASES_GUION_MAC38P B ON P.POSITIONSEQ = B.POSITIONSEQ
+    					--INNER JOIN :BASES_TOTAL_IMPORTE_GUION_MAC38P BT ON BT.POSITIONSEQ = B.POSITIONSEQ
+    					--POSITION
+    					WHERE B.POS_PRIN = P.POS_PRIN  
+    					--RAMO
+    					AND B.PRODUCTID LIKE '%'||RIGHT(P.EARNINGCODEID,5)
+    					--PERMANENCIA
+    					AND B.EVENTTYPEID = 'Pago Comercial' AND B.CODIGO_POLIZA = P.EARNINGGROUPID AND ESTADO = SUBSTRING(P.EARNINGCODEID,1,3)
+    					--TIPO CONCEPTO
+    					AND B.IMPORTE_COMISION <> 0
+    					AND NOT EXISTS (
+    					    SELECT 1 
+    					    FROM EXT.FINAL_REPEXT_FILE_TEST X 
+    					    WHERE X.POS_PRIN       = P.POS_PRIN
+    					      AND X.PERIODSEQ      = P.PERIODSEQ
+    					      AND X.EARNINGCODEID  = P.EARNINGCODEID
+    					      AND X.EARNINGGROUPID = P.EARNINGGROUPID
+    					      AND X.TIPO_DOCUMENTO = P.TIPO_DOCUMENTO
+    					      AND X.ORDERID        = B.ORDERID
+    					      AND X.LINENUMBER     = B.LINENUMBER
+    					      AND X.SUBLINENUMBER  = B.SUBLINENUMBER
+    					      AND X.EVENTTYPEID    = B.EVENTTYPEID
+    					);
+    	CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_FINAL_PAGOS_BASES_GUION_MAC38P: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');	
+    	
+    	--SELECT 'TEMP_FINAL_PAGOS_BASES_GUION_MAC38P',* FROM :TEMP_FINAL_PAGOS_BASES_GUION_MAC38P;
+    	
+    	--LIQUIDACIÓN COMPLEMENTARIA
+		IF v_num_post > 1 AND i_tipo_reparto = 'CIERRE' THEN
+		
+			TEMP_PAGOS_DIRECTOS_GUION_MAC38P_LC = SELECT SUM(IMPORTE) SUMA_PAGOS,PERIODSEQ,POS_PRIN,EARNINGGROUPID,EARNINGCODEID,DEPOSITO 
+				FROM :TEMP_FINAL_PAGOS_BASES_GUION_MAC38P
+				WHERE TIPO_LIQ IN ('CIERRE','LIQ')
+				GROUP BY PERIODSEQ,POS_PRIN,EARNINGGROUPID,EARNINGCODEID,DEPOSITO;
+		
+			INSERT INTO EXT.FINAL_REPEXT_FILE_TEST("TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+		        ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+		        ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+		        ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ")
+		    SELECT "TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+		        ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE"*(-1),"TIPO_AGENTE","TIPO_DOCUMENTO",TF."EARNINGGROUPID"
+		        ,TF."EARNINGCODEID",TF.SUMA_IMPORTE,"DEPOSITSEQ",TF."DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+		        ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF",TF."POS_PRIN","POSITIONNAME","PERIODO",TF."PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ"
+		    FROM :TEMP_FINAL_PAGOS_BASES_GUION_MAC38P TF 
+		    	INNER JOIN :TEMP_PAGOS_DIRECTOS_GUION_MAC38P_LC TLC ON TF.PERIODSEQ = TLC.PERIODSEQ AND TF.POS_PRIN = TLC.POS_PRIN 
+		    	AND TF.EARNINGGROUPID = TLC.EARNINGGROUPID AND TF.EARNINGCODEID = TLC. EARNINGCODEID AND TF.DEPOSITO = TLC.DEPOSITO
+		    	AND 1 = (CASE WHEN SUMA_PAGOS <> SUMA_IMPORTE THEN 1 END); 
+		 END IF;
+    	-- FIN LIQUIDACIÓN COMPLEMENTARIA
+    	
+    	UPDATE F
+    	SET ESTADO_REPARTO = CASE 
+    		WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 2
+			WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 3
+			ELSE 4 
+		END
+		FROM EXT.FINAL_REPEXT_PAGOS_FILE_TEST F
+		INNER JOIN :TEMP_FINAL_PAGOS_BASES_GUION_MAC38P T ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+		AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID;
+		
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_PAGOS_FILE_TEST ESTADOS ACTUALIZADOS ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+		
+		UPDATE F
+            SET ESTADO_REPARTO = CASE 
+    				WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 2
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 3
+					ELSE 4 
+				END --REPARTO CORRECTO
+			FROM :TEMP_REPEXT_PAGOS_REPARTO_FILE F
+			INNER JOIN :TEMP_FINAL_PAGOS_BASES_GUION_MAC38P T ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+			AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+			WHERE 1 = (CASE 
+    				WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 1
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+					ELSE 0 
+				END)
+	--		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID
+			;
+        CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_REPEXT_PAGOS_REPARTO_FILE ESTADOS ACTUALIZADOS: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');   
+                        
+		
+		INSERT INTO EXT.FINAL_REPEXT_FILE_TEST("TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+            ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+            ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+            ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ")
+        SELECT "TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+            ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+            ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+            ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ"
+        FROM :TEMP_FINAL_PAGOS_BASES_GUION_MAC38P
+        WHERE 1 = (
+        	CASE 
+        		WHEN (IMPORTE_PAGO - IFNULL(SUMA_IMPORTE,0)) = 0 THEN 1
+    			WHEN (IMPORTE_PAGO - IFNULL(SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+    		ELSE 0 
+    		END);
+		---------------------------------------------------------------------------------------------------
+
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_FILE_TEST INSERTADOS: ' ||::ROWCOUNT, v_log_count, v_idproceso, 'info');	
+		---------------------------------------------------------------------------------------------------
+		
+		TEMP_FINAL_PAGOS_BASES_GUION_MAC38P_DIF =
+			SELECT T.PERIODSEQ,T.POS_PRIN,T.TIPO_DOCUMENTO,T.DEPOSITSEQ,T.EARNINGCODEID,T.EARNINGGROUPID,T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0) AS DIF,
+				T.ORDERID,T.LINENUMBER,T.SUBLINENUMBER,T.EVENTTYPEID, T.COMPENSATIONDATE,
+				ROW_NUMBER() OVER(
+                      		PARTITION BY T.PERIODSEQ,T.POS_PRIN,T.TIPO_DOCUMENTO,T.DEPOSITSEQ,T.EARNINGCODEID,T.EARNINGGROUPID
+                      		--ORDER BY T.ORDERID
+                      ) AS RN_TRX
+			FROM :TEMP_FINAL_PAGOS_BASES_GUION_MAC38P T
+			WHERE 1 = (CASE 
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 0
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+					ELSE 0 
+				END)
+		;
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_FINAL_PAGOS_BASES_GUION_MAC38P_DIF: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+		UPDATE F
+    	SET F.IMPORTE = F.IMPORTE + T.DIF
+    	FROM EXT.FINAL_REPEXT_FILE_TEST F
+    	INNER JOIN :TEMP_FINAL_PAGOS_BASES_GUION_MAC38P_DIF T  ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+		AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID
+		AND F.ORDERID = T.ORDERID AND F.LINENUMBER = T.LINENUMBER AND F.SUBLINENUMBER = T.SUBLINENUMBER AND F.EVENTTYPEID = T.EVENTTYPEID AND F.COMPENSATIONDATE = T.COMPENSATIONDATE
+		AND T.RN_TRX = 1
+		;
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_FILE_TEST IMPORTE_DIF: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');	
+		
+		---------------------------------------------------------------------------------------------------
+		-- GUION
+		---------------------------------------------------------------------------------------------------
+		
+		--BASES
+		IF i_tipo_reparto = 'CIERRE' THEN
+			TEMP_BASES_GUION = SELECT * 
+	    		FROM EXT.FINAL_BASES_REPARTO_POLIZA_FILE B
+	    		WHERE PERIODSEQ = i_periodSeq
+	    		--RAMO EARNINGGROUPID = '01-RT'
+	    		--AND PRODUCTID LIKE '032%'
+	    		ORDER BY POSITIONSEQ;
+	    	CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_BASES_GUION: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+	    ELSE
+	    	TEMP_BASES_GUION = SELECT * 
+	    		FROM EXT.FINAL_BASES_REPARTO_POLIZA_FILE_NUEVA_BASE_REPARTO B
+	    		WHERE PERIODSEQ = v_periodSeqAnterior
+	    		--RAMO EARNINGGROUPID = '01-RT'
+	    		--AND PRODUCTID LIKE '032%'
+	    		ORDER BY POSITIONSEQ;
+	    	CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_BASES_GUION (BALANCE): ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+	    END IF;
+		
+			
+		--BASES_TOTAL_IMPORTE
+    	BASES_TOTAL_IMPORTE_GUION = 
+			SELECT POSITIONSEQ, SUM(IMPORTE_COMISION) AS SUMA_IMPORTE
+			FROM :TEMP_BASES_GUION
+			WHERE IMPORTE_COMISION <> 0
+			GROUP BY POSITIONSEQ;
+			
+		--FINAL
+    	TEMP_FINAL_PAGOS_BASES_GUION = SELECT P.PARTICIPANTSEQ,
+                                P.POSITIONSEQ,
+                                P.PERIODSEQ,
+                                :v_periodName AS PERIODO,
+                                P.POS_CALLIDUS POSITIONNAME,
+                                P.POS_PRIN,
+                                P.NIF,
+                                P.MANAGER_POS_PRIN,
+                                ORDERID,
+                                LINENUMBER,
+                                SUBLINENUMBER,
+                                EVENTTYPEID,
+                                PRODUCTID,
+                                CODIGO_POLIZA,
+                                COMPENSATIONDATE,
+                                ESTADO,
+                                P.PROGRAMA,
+                                P.TIPO_PAGO,
+                                P.DEPOSITO,
+                                P.DEPOSITSEQ,
+                                P.IMPORTE IMPORTE_PAGO,
+                                P.EARNINGCODEID,
+                                P.EARNINGGROUPID,
+                                P.TIPO_DOCUMENTO,
+                                P.TIPO_AGENTE,
+                                B.IMPORTE_COMISION AS IMPORTE,
+                                BT.SUMA_IMPORTE AS SUMA_IMPORTE,
+                                NULL AS TIPO_REPARTO,
+                                0 AS NUM_TRAMO,
+                                NULL AS REPARTO_TIPO_BASE,
+                                NULL AS REPARTO_PORCENTAJE,
+                                POLIZA_FISICA,
+                                POLIZA_CORREGIDA,
+                                PRIMA_CORREGIDA,
+                                PRIMA_NETA,
+                                PRIMA_NETA_ANUAL,
+                                PRIMA_COMIS_S4 PRIMA_COMIS,
+                                NULL AS COEF_TIPO_BASE,
+                                NULL AS COEF_CORRECTOR,
+                                COD_AGENTE,
+                                P.TIPO_LIQ
+    					FROM :TEMP_PAGOS_DIRECTOS_X_RT P
+    					INNER JOIN :TEMP_BASES_GUION B ON P.POSITIONSEQ = B.POSITIONSEQ
+    					INNER JOIN :BASES_TOTAL_IMPORTE_GUION BT ON BT.POSITIONSEQ = B.POSITIONSEQ
+    					--POSITION
+    					WHERE (B.POS_PRIN = P.POS_PRIN OR B.MANAGER_POS_PRIN = P.POS_PRIN ) 
+    					--RAMO
+    					AND 1 = 0 --B.PRODUCTID LIKE '%'||RIGHT(P.EARNINGCODEID,5)||'%'
+    					--PERMANENCIA
+    					AND B.EVENTTYPEID = 'Pago Comercial' AND B.CODIGO_POLIZA = P.EARNINGGROUPID AND ESTADO = SUBSTRING(P.EARNINGCODEID,1,3)
+    					--TIPO CONCEPTO
+    					AND B.IMPORTE_COMISION <> 0
+    					AND NOT EXISTS (
+    					    SELECT 1 
+    					    FROM EXT.FINAL_REPEXT_FILE_TEST X 
+    					    WHERE X.POS_PRIN       = P.POS_PRIN
+    					      AND X.PERIODSEQ      = P.PERIODSEQ
+    					      AND X.EARNINGCODEID  = P.EARNINGCODEID
+    					      AND X.EARNINGGROUPID = P.EARNINGGROUPID
+    					      AND X.TIPO_DOCUMENTO = P.TIPO_DOCUMENTO
+    					      AND X.ORDERID        = B.ORDERID
+    					      AND X.LINENUMBER     = B.LINENUMBER
+    					      AND X.SUBLINENUMBER  = B.SUBLINENUMBER
+    					      AND X.EVENTTYPEID    = B.EVENTTYPEID
+    					);
+    	CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_FINAL_PAGOS_BASES_GUION: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');	
+    	
+    	--SELECT 'TEMP_FINAL_PAGOS_BASES_GUION',* FROM :TEMP_FINAL_PAGOS_BASES_GUION;
+    	
+    	--LIQUIDACIÓN COMPLEMENTARIA
+		IF v_num_post > 1 AND i_tipo_reparto = 'CIERRE' THEN
+		
+			TEMP_PAGOS_DIRECTOS_GUION_LC = SELECT SUM(IMPORTE) SUMA_PAGOS,PERIODSEQ,POS_PRIN,EARNINGGROUPID,EARNINGCODEID,DEPOSITO 
+				FROM :TEMP_FINAL_PAGOS_BASES_GUION
+				WHERE TIPO_LIQ IN ('CIERRE','LIQ')
+				GROUP BY PERIODSEQ,POS_PRIN,EARNINGGROUPID,EARNINGCODEID,DEPOSITO;
+		
+			INSERT INTO EXT.FINAL_REPEXT_FILE_TEST("TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+		        ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+		        ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+		        ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ")
+		    SELECT "TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+		        ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE"*(-1),"TIPO_AGENTE","TIPO_DOCUMENTO",TF."EARNINGGROUPID"
+		        ,TF."EARNINGCODEID",TF.SUMA_IMPORTE,"DEPOSITSEQ",TF."DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+		        ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF",TF."POS_PRIN","POSITIONNAME","PERIODO",TF."PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ"
+		    FROM :TEMP_FINAL_PAGOS_BASES_GUION TF 
+		    	INNER JOIN :TEMP_PAGOS_DIRECTOS_GUION_LC TLC ON TF.PERIODSEQ = TLC.PERIODSEQ AND TF.POS_PRIN = TLC.POS_PRIN 
+		    	AND TF.EARNINGGROUPID = TLC.EARNINGGROUPID AND TF.EARNINGCODEID = TLC. EARNINGCODEID AND TF.DEPOSITO = TLC.DEPOSITO
+		    	AND 1 = (CASE WHEN SUMA_PAGOS <> SUMA_IMPORTE THEN 1 END); 
+		 END IF;
+    	-- FIN LIQUIDACIÓN COMPLEMENTARIA
+    	
+    	UPDATE F
+    	SET ESTADO_REPARTO = CASE 
+    		WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 2
+			WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 3
+			ELSE 4 
+		END
+		FROM EXT.FINAL_REPEXT_PAGOS_FILE_TEST F
+		INNER JOIN :TEMP_FINAL_PAGOS_BASES_GUION T ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+		AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID;
+		
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_PAGOS_FILE_TEST ESTADOS ACTUALIZADOS ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+		
+		UPDATE F
+            SET ESTADO_REPARTO = CASE 
+    				WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 2
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 3
+					ELSE 4 
+				END --REPARTO CORRECTO
+			FROM :TEMP_REPEXT_PAGOS_REPARTO_FILE F
+			INNER JOIN :TEMP_FINAL_PAGOS_BASES_GUION T ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+			AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+			WHERE 1 = (CASE 
+    				WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 1
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+					ELSE 0 
+				END)
+	--		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID
+			;
+        CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_REPEXT_PAGOS_REPARTO_FILE ESTADOS ACTUALIZADOS: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');   
+                                   
+		
+		INSERT INTO EXT.FINAL_REPEXT_FILE_TEST("TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+            ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+            ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+            ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ")
+        SELECT "TIPO_LIQ","COD_AGENTE","COEF_CORRECTOR","COEF_TIPO_BASE","PRIMA_COMIS","PRIMA_NETA_ANUAL","PRIMA_NETA","PRIMA_CORREGIDA"
+            ,"POLIZA_CORREGIDA","POLIZA_FISICA","REPARTO_PORCENTAJE","REPARTO_TIPO_BASE","NUM_TRAMO","TIPO_REPARTO","IMPORTE","TIPO_AGENTE","TIPO_DOCUMENTO","EARNINGGROUPID"
+            ,"EARNINGCODEID","IMPORTE_PAGO","DEPOSITSEQ","DEPOSITO","TIPO_PAGO","PROGRAMA","ESTADO","COMPENSATIONDATE","CODIGO_POLIZA","PRODUCTID","EVENTTYPEID","SUBLINENUMBER"
+            ,"LINENUMBER","ORDERID","MANAGER_POS_PRIN","NIF","POS_PRIN","POSITIONNAME","PERIODO","PERIODSEQ","POSITIONSEQ","PARTICIPANTSEQ"
+        FROM :TEMP_FINAL_PAGOS_BASES_GUION
+        WHERE 1 = (
+        	CASE 
+        		WHEN (IMPORTE_PAGO - IFNULL(SUMA_IMPORTE,0)) = 0 THEN 1
+    			WHEN (IMPORTE_PAGO - IFNULL(SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+    		ELSE 0 
+    		END);
+		---------------------------------------------------------------------------------------------------
+
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_FILE_TEST INSERTADOS: ' ||::ROWCOUNT, v_log_count, v_idproceso, 'info');	
+		---------------------------------------------------------------------------------------------------
+		
+		TEMP_FINAL_PAGOS_BASES_GUION_DIF =
+			SELECT T.PERIODSEQ,T.POS_PRIN,T.TIPO_DOCUMENTO,T.DEPOSITSEQ,T.EARNINGCODEID,T.EARNINGGROUPID,T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0) AS DIF,
+				T.ORDERID,T.LINENUMBER,T.SUBLINENUMBER,T.EVENTTYPEID, T.COMPENSATIONDATE,
+				ROW_NUMBER() OVER(
+                      		PARTITION BY T.PERIODSEQ,T.POS_PRIN,T.TIPO_DOCUMENTO,T.DEPOSITSEQ,T.EARNINGCODEID,T.EARNINGGROUPID
+                      		--ORDER BY T.ORDERID
+                      ) AS RN_TRX
+			FROM :TEMP_FINAL_PAGOS_BASES_GUION T
+			WHERE 1 = (CASE 
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) = 0 THEN 0
+					WHEN (T.IMPORTE_PAGO - IFNULL(T.SUMA_IMPORTE,0)) BETWEEN -2 AND 2 THEN 1
+					ELSE 0 
+				END)
+		;
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'TEMP_FINAL_PAGOS_BASES_GUION_DIF: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');
+		
+		UPDATE F
+    	SET F.IMPORTE = F.IMPORTE + T.DIF
+    	FROM EXT.FINAL_REPEXT_FILE_TEST F
+    	INNER JOIN :TEMP_FINAL_PAGOS_BASES_GUION_DIF T  ON F.PERIODSEQ = T.PERIODSEQ AND F.POS_PRIN = T.POS_PRIN
+		AND F.TIPO_DOCUMENTO = T.TIPO_DOCUMENTO AND F.DEPOSITSEQ = T.DEPOSITSEQ
+		AND F.EARNINGCODEID = T.EARNINGCODEID AND F.EARNINGGROUPID = T.EARNINGGROUPID
+		AND F.ORDERID = T.ORDERID AND F.LINENUMBER = T.LINENUMBER AND F.SUBLINENUMBER = T.SUBLINENUMBER AND F.EVENTTYPEID = T.EVENTTYPEID AND F.COMPENSATIONDATE = T.COMPENSATIONDATE
+		AND T.RN_TRX = 1
+		;
+		CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'FINAL_REPEXT_FILE_TEST IMPORTE_DIF: ' || ::ROWCOUNT, v_log_count, v_idproceso, 'info');	
+
+------------------------------LFC:20251202 --TABLA DEBUG PENDIENTE BORRAR
+	--     SELECT COUNT(1) INTO v_existe_tabla FROM SYS.TABLES WHERE TABLE_NAME = 'FINAL_REPEXT_PAGOS_FILE_2_DEBUG';
+	-- TEMP_FINAL_REPEXT_PAGOS_FILE_2_DEBUG =
+	-- 		SELECT * FROM EXT.FINAL_REPEXT_FILE_TEST WHERE PERIODSEQ = i_periodSeq
+	-- 		;
+	-- 	IF v_existe_tabla > 0 THEN
+	-- 		DROP TABLE EXT.FINAL_REPEXT_PAGOS_FILE_2_DEBUG;
+	-- 	END IF;
+		
+	-- 	CREATE TABLE EXT.FINAL_REPEXT_PAGOS_FILE_2_DEBUG AS (SELECT * FROM :TEMP_FINAL_REPEXT_PAGOS_FILE_2_DEBUG);
+	--     CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name, 'Creada la tabla temporal FINAL_REPEXT_PAGOS_FILE_2_DEBUG' , v_log_count, v_idproceso, 'debug');
+
+	--     SELECT COUNT(1) INTO v_existe_tabla FROM SYS.TABLES WHERE TABLE_NAME = 'FINAL_REPEXT_FILE_2_DEBUG';
+		
+	-- 	TEMP_FINAL_REPEXT_FILE_2_DEBUG =
+	-- 		SELECT * FROM EXT.FINAL_REPEXT_FILE_TEST WHERE PERIODSEQ = i_periodSeq
+	-- 		;
+			
+	-- 	IF v_existe_tabla > 0 THEN
+	-- 		DROP TABLE EXT.FINAL_REPEXT_FILE_2_DEBUG;
+	-- 	END IF;
+		
+	-- 	CREATE TABLE EXT.FINAL_REPEXT_FILE_2_DEBUG AS (SELECT * FROM :TEMP_FINAL_REPEXT_FILE_2_DEBUG );
+	--     CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name, 'Creada la tabla temporal FINAL_REPEXT_FILE_2_DEBUG' , v_log_count, v_idproceso, 'debug');
+------------------------------
+
+
+
+CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'SE HAN INSERTADO EN EXT.FINAL_REPEXT_FILE_TEST TOTAL REGISTROS: ' || (SELECT COUNT(*) FROM EXT.FINAL_REPEXT_FILE_TEST WHERE PERIODSEQ = i_periodSeq), v_log_count, v_idproceso, 'info');
+-- CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'ESTADOS EN EXT.FINAL_REPEXT_FILE_TEST TOTAL REGISTROS: ' || (SELECT COUNT(*) FROM EXT.FINAL_REPEXT_FILE_TEST WHERE PERIODSEQ = i_periodSeq), v_log_count, v_idproceso, 'info');  
+
+CALL LIB_GLOBAL:WRITE_LOG (v_permisos_log, v_proc_name,'!!!!!FIN REPARTO PAGOS DIRECTOS.', v_log_count, v_idproceso, 'info');  
+
+
+------------------------------------------------------------------------
+        ---------------------------------------------------------------------------------------------------
+		---------------------------------------- FIN REPARTO PAGOS DIRECTOS -------------------------------
+		---------------------------------------------------------------------------------------------------
+END;
+
+

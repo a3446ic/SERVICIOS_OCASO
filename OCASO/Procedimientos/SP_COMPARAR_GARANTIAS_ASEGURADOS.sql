@@ -1,0 +1,29 @@
+CREATE PROCEDURE EXT.SP_COMPARAR_GARANTIAS_ASEGURADOS (OUT FILENAME VARCHAR(200) , IN i_fichero_entrada VARCHAR(500))
+LANGUAGE SQLSCRIPT  
+SQL SECURITY INVOKER 
+DEFAULT SCHEMA EXT AS
+/*---------------------------------------------------------------------
+    | Author: Diego Teijo Barral
+    | Company: Inycom
+    | Initial Version Date: 26-Septiembre-2025
+    |----------------------------------------------------------------------
+    | Procedure Purpose: Exporta las asegurados
+	|
+	| Version: 0.1	DTB 20250926		Initial Version.
+	|
+    -----------------------------------------------------------------------
+*/
+BEGIN
+
+    -- DECLARACIÓN DE NOMBRE FICHERO FINAL
+    DECLARE v_file_name VARCHAR(50) := 'DEBUG_GARANTIAS_ASEGURADOS';
+    SELECT :v_file_name || :i_fichero_entrada INTO FILENAME FROM DUMMY;
+	
+    TRUNCATE TABLE EXT.COMPARAR_GARANTIAS_ASEGURADOS_DEBUG;
+
+    INSERT INTO EXT.COMPARAR_GARANTIAS_ASEGURADOS_DEBUG
+        SELECT 
+			IFNULL(TO_VARCHAR(CODIGO_POLIZA ||' - '||CODIGO_RECIBO ||' - '||PRODUCTO_CONTABLE),'') ||';'||IFNULL(TO_VARCHAR(NUMERO_ASEGURADO),'') ||';'|| IFNULL(TO_VARCHAR(PRIMA_NETA_ASEGURADO),'') ||';'|| IFNULL(TO_VARCHAR(PRIMA_UNICA),'') ||';'|| IFNULL(TO_VARCHAR(GARANTIA_IP),'') ||';'|| IFNULL(TO_VARCHAR(PORCENTAJE_PARTICIPACION),'') ||';'|| IFNULL(TO_VARCHAR(PORCENTAJE_NIVELADA),'') ||';'||IFNULL(TO_VARCHAR(CAPITAL_NATURAL),'') ||';'|| IFNULL(TO_VARCHAR(CAPITAL_NIVELADO),'') ||';'|| IFNULL(TO_VARCHAR(SUBTIPO_MOVIMIENTO),'') ||';'|| IFNULL(TO_VARCHAR(MARCA_CUENTA),'') ||';'|| IFNULL(TO_VARCHAR(PRIMA_COMISIONABLE),'') ||';'|| IFNULL(TO_VARCHAR(UNIDAD_DE_POLIZA),'') ||';'|| IFNULL(TO_VARCHAR(MESES_COBRADOS),'') ||';'|| IFNULL(TO_VARCHAR(FECHA_ALTA_GAR_ASE,'YYYY-MM-DD'),'') ||';'|| IFNULL(TO_VARCHAR(FECHA_BAJA_GAR_ASE,'YYYY-MM-DD'),'') ||';'|| IFNULL(TO_VARCHAR(NUM_ORDEN_MOVIMIENTO),'') ||';'||IFNULL(TO_VARCHAR(FILE_NAME),'') ||';'|| IFNULL(TO_VARCHAR(PC_PERIODO),'') ||';'|| 	IFNULL(TO_VARCHAR(NUM_PERIODOS),'')
+        FROM EXT.GARANTIAS_ASEGURADO WHERE FILE_NAME = :i_fichero_entrada;
+ 
+END

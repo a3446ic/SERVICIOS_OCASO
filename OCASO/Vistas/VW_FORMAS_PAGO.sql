@@ -1,0 +1,33 @@
+CREATE VIEW "EXT"."VW_FORMAS_PAGO"(
+	"CODIGO",
+	"DESCRIPCION",
+	"MESES_COBRADOS",
+	"MENSUALIDADES") AS
+( 		(SELECT 
+			c.classifierid AS "CODIGO",
+			c.description AS "DESCRIPCION",
+			gc.genericnumber1 AS "MESES_COBRADOS",
+			gc.genericnumber2 AS "MENSUALIDADES"
+		FROM 
+			TCMP.CS_CLASSIFIER AS c
+			INNER JOIN
+			TCMP.CS_GENERICCLASSIFIER AS gc
+			ON C.CLASSIFIERSEQ = GC.CLASSIFIERSEQ
+				AND gc.REMOVEDATE = TO_DATE( '22000101', 'yyyymmdd' )
+				AND gc.islast = 1
+			INNER JOIN
+			TCMP.CS_CATEGORY_CLASSIFIERS AS ccc
+			ON ccc.CLASSIFIERSEQ = c.CLASSIFIERSEQ
+				AND CCC.REMOVEDATE = TO_DATE( '22000101', 'yyyymmdd' )
+				AND CCC.ISLAST = 1
+			INNER JOIN
+			TCMP.CS_CATEGORYTREE AS CT
+			ON CCC.CATEGORYTREESEQ = CT.CATEGORYTREESEQ
+				AND ct.REMOVEDATE = TO_DATE( '22000101', 'yyyymmdd' )
+				AND ct.ISLAST = 1
+		WHERE ct.NAME = 'Formas de pago'
+			AND --and c.classifierid = 'Bonificacion Poliza'
+			c.REMOVEDATE = TO_DATE( '22000101', 'yyyymmdd' )
+			AND c.ISLAST = 1
+		ORDER BY c.classifierid ASC) )
+WITH READ ONLY;

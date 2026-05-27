@@ -1,0 +1,10 @@
+Definición parámetros/variables globales. Línea 95
+Función para conseguir datos relacionados con el periodo actual. Línea 114
+Procedimiento para el debug (en HANA, CALL EXT.LIB_GLOBAL:WRITE_LOG). Línea 134
+Procedimiento para detener el proceso. Línea 146
+Procedimiento para actualizar fechas webi. Línea 166
+Procedimiento principal. Línea 191
+Recarga tablas temporales. Línea 348
+Recarga tablas informes. Línea 1246
+Fin
+
